@@ -4,7 +4,13 @@
 
 轻量的 macOS 顶部栏监视器：温度、CPU、内存、网速，外加 AI 编程工具（Claude Code、Codex、OpenCode、Cursor）的用量看板。原生 Swift，Liquid Glass 界面，没有第三方依赖。
 
-![Lucent](docs/design/shot-1.jpg)
+![概览](docs/screenshots/overview.png)
+
+<p>
+  <img src="docs/screenshots/card.png" alt="卡片" width="27%">
+  &nbsp;
+  <img src="docs/screenshots/ai-usage.png" alt="AI 用量" width="70%">
+</p>
 
 ## 功能
 

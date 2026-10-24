@@ -4,7 +4,13 @@
 
 A lightweight macOS menu bar monitor for temperature, CPU, memory and network — plus a usage dashboard for AI coding tools (Claude Code, Codex, OpenCode, Cursor). Native Swift, Liquid Glass UI, no third-party dependencies.
 
-![Lucent](docs/design/shot-1.jpg)
+![Overview](docs/screenshots/overview.png)
+
+<p>
+  <img src="docs/screenshots/card.png" alt="Card" width="27%">
+  &nbsp;
+  <img src="docs/screenshots/ai-usage.png" alt="AI usage" width="70%">
+</p>
 
 ## Features
 
