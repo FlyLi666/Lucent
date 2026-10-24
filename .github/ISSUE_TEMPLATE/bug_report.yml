@@ -1,0 +1,31 @@
+name: Bug report
+description: Something doesn't work or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect? Screenshots help a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 27.0, MacBook Air M4
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Lucent version or commit
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Please remove any tokens, emails or personal paths before pasting logs.
