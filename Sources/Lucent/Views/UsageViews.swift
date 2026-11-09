@@ -24,6 +24,7 @@ enum UsageFmt {
     static func cost(_ c: Double) -> String {
         if c >= 1000 {
             let f = NumberFormatter()
+            f.locale = Locale(identifier: "en_US")
             f.numberStyle = .decimal
             f.maximumFractionDigits = 0
             return "$" + (f.string(from: NSNumber(value: c)) ?? String(format: "%.0f", c))
@@ -31,19 +32,25 @@ enum UsageFmt {
         return String(format: "$%.2f", c)
     }
 
-    /// "3 小时 12 分后重置"
+    /// "Resets in 3 hours 12 min"
     static func reset(_ d: Date?) -> String? {
         guard let d else { return nil }
         let m = max(Int(d.timeIntervalSinceNow / 60), 0), h = m / 60, day = h / 24
-        if day > 0 { return h % 24 > 0 ? "\(day) 天 \(h % 24) 小时后重置" : "\(day) 天后重置" }
-        if h > 0 { return "\(h) 小时 \(m % 60) 分后重置" }
-        return "\(m) 分钟后重置"
+        if day > 0 {
+            return h % 24 > 0
+                ? L10n.t("Resets in %@ %@", L10n.days(day), L10n.hours(h % 24))
+                : L10n.t("Resets in %@", L10n.days(day))
+        }
+        if h > 0 { return L10n.t("Resets in %@ %@", L10n.hours(h), L10n.minutes(m % 60)) }
+        return L10n.t("Resets in %@", L10n.minutes(m))
     }
 
-    /// 5 小时窗口还剩多久："2 小时 14 分后结束"
+    /// 5 小时窗口还剩多久："Ends in 2 hours 14 min"
     static func blockEnds(_ d: Date) -> String {
         let m = max(Int(d.timeIntervalSinceNow / 60), 0)
-        return m >= 60 ? "\(m / 60) 小时 \(m % 60) 分后结束" : "\(m) 分钟后结束"
+        return m >= 60
+            ? L10n.t("Ends in %@ %@", L10n.hours(m / 60), L10n.minutes(m % 60))
+            : L10n.t("Ends in %@", L10n.minutes(m))
     }
 
     /// 卡片上的紧凑倒计时："2:14"
@@ -54,32 +61,33 @@ enum UsageFmt {
 
     static func clock(_ d: Date) -> String {
         let f = DateFormatter()
+        f.locale = L10n.locale
         f.dateFormat = "HH:mm"
         return f.string(from: d)
     }
 
-    /// "刚刚" / "3 分钟前"
+    /// "Just now" / "3 minutes ago"
     static func ago(_ d: Date?) -> String {
         guard let d else { return "—" }
         let s = Int(-d.timeIntervalSinceNow)
-        if s < 60 { return "刚刚" }
-        if s < 3600 { return "\(s / 60) 分钟前" }
-        if s < 86400 { return "\(s / 3600) 小时前" }
-        return "\(s / 86400) 天前"
+        if s < 60 { return L10n.t("Just now") }
+        if s < 3600 { return L10n.t("%@ ago", L10n.minutes(s / 60)) }
+        if s < 86400 { return L10n.t("%@ ago", L10n.hours(s / 3600)) }
+        return L10n.t("%@ ago", L10n.days(s / 86400))
     }
 
     static func costNote(_ k: CostKind) -> String {
         switch k {
-        case .apiEquivalent: return "按 API 价折算"
-        case .recorded: return "工具记录的金额"
-        case .billed: return "账单计量"
+        case .apiEquivalent: return L10n.t("API-equivalent")
+        case .recorded: return L10n.t("As recorded by the tool")
+        case .billed: return L10n.t("Billed")
         }
     }
 
     static func statusNote(_ s: UsageStatus) -> String? {
         switch s {
-        case .loading: return "读取中…"
-        case .notInstalled: return "本机没有记录"
+        case .loading: return L10n.t("Reading…")
+        case .notInstalled: return L10n.t("No local records")
         case let .partial(r), let .failed(r): return r
         case .ok: return nil
         }
@@ -139,7 +147,7 @@ struct ClaudeUsageButton: View {
     var body: some View {
         Button(action: ClaudeUsagePage.open) {
             HStack(spacing: 4) {
-                Text(compact ? "额度" : "打开用量页")
+                Text(compact ? L10n.t("Quota") : L10n.t("Open usage page"))
                 Image(systemName: "arrow.up.right").font(.system(size: compact ? 9 : 10, weight: .semibold))
             }
             .font(.system(size: compact ? 11.5 : 12))
@@ -151,7 +159,7 @@ struct ClaudeUsageButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help("在 Claude 桌面版里查看 5 小时和每周额度")
+        .help(L10n.t("View 5-hour and weekly quotas in the Claude desktop app"))
     }
 }
 
@@ -244,7 +252,7 @@ struct UsageCardRows: View {
         }
         // 少于 3 行时占住高度，卡片尺寸不跳
         if rows.count < 3 {
-            Text(rows.isEmpty ? "在主窗口「本机信息 → 设置」里选择要显示的工具" : "")
+            Text(rows.isEmpty ? L10n.t("Pick which tools to show in Window → Settings") : "")
                 .font(.system(size: 12)).foregroundStyle(Theme.tertiary)
                 .frame(maxWidth: .infinity, minHeight: CGFloat(3 - rows.count) * 26)
         }
@@ -259,7 +267,7 @@ struct UsageCardRows: View {
                     .foregroundStyle(Theme.quotaColor(q.usedFraction))
                     .frame(width: 34, alignment: .trailing)
             }
-            .help("\(q.title) 已用 \(Fmt.percent(q.usedFraction))" + (UsageFmt.reset(q.resetsAt).map { " · \($0)" } ?? ""))
+            .help(L10n.t("%@ used %@", q.title, Fmt.percent(q.usedFraction)) + (UsageFmt.reset(q.resetsAt).map { " · \($0)" } ?? ""))
         } else if let b = u.liveBlock {
             BlockCompact(usage: u, block: b)
         } else if u.tool == .claude && u.status != .notInstalled {
@@ -271,7 +279,7 @@ struct UsageCardRows: View {
 
     /// 今日：有本机记录就显示 token，否则显示金额
     private func today(_ u: ToolUsage) -> String {
-        if u.status == .notInstalled { return "未安装" }
+        if u.status == .notInstalled { return L10n.t("Not installed") }
         if u.hasDaily { return UsageFmt.tokens(u.today.tokens.total) }
         return u.today.cost > 0 ? UsageFmt.cost(u.today.cost) : "—"
     }
@@ -317,8 +325,8 @@ private struct UsageTrendPanel: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("今日 \(UsageFmt.cost(tools.reduce(0) { $0 + $1.today.cost })) · 近 30 天 \(UsageFmt.cost(last30))")
-                    Text(rate >= 1 ? "当前 \(UsageFmt.tokens(Int64(rate)))/分钟" : "当前空闲")
+                    Text(L10n.t("Today %@ · 30 days %@", UsageFmt.cost(tools.reduce(0) { $0 + $1.today.cost }), UsageFmt.cost(last30)))
+                    Text(rate >= 1 ? L10n.t("Now %@/min", UsageFmt.tokens(Int64(rate))) : L10n.t("Idle"))
                 }
                 .font(.system(size: 12)).foregroundStyle(Theme.secondary).monospacedDigit()
             }
@@ -345,7 +353,7 @@ private struct UsageTrendPanel: View {
                     }
                 }
                 Spacer()
-                Text("30 天前 → 今天").font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.tertiary)
+                Text(L10n.t("30 days ago → today")).font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.tertiary)
             }
             .font(.system(size: 11.5))
         }
@@ -363,7 +371,7 @@ private struct QuotaPanel: View {
         let codex = tools.first { $0.tool == .codex && $0.status != .notInstalled }
         Panel {
             HStack {
-                Eyebrow("QUOTA · 订阅额度")
+                Eyebrow(L10n.t("QUOTA · Subscription"))
                 Spacer()
                 Button { store.refreshNow() } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 11))
@@ -372,10 +380,10 @@ private struct QuotaPanel: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .help("立即刷新")
+                .help(L10n.t("Refresh now"))
             }
             if withQuota.isEmpty && claude == nil {
-                Text("没有读到订阅额度").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
+                Text(L10n.t("No subscription quota")).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -387,7 +395,7 @@ private struct QuotaPanel: View {
                                 ClaudeUsageButton()
                             }
                             BlockRow(usage: claude)
-                            Text("窗口按本机记录估算；官方 5 小时和每周额度在桌面版设置页查看，Lucent 不读 Claude 的登录凭据")
+                            Text(L10n.t("Windows are estimated from local logs. Official 5-hour and weekly quotas live in the desktop app; Lucent never reads Claude credentials."))
                                 .font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -404,7 +412,7 @@ private struct QuotaPanel: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                                     Text("Cursor · \(a.displayName)").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                                    if a.isCurrentLogin { Text("当前").font(.system(size: 10.5)).foregroundStyle(Theme.tertiary) }
+                                    if a.isCurrentLogin { Text(L10n.t("Current")).font(.system(size: 10.5)).foregroundStyle(Theme.tertiary) }
                                     if let plan = a.plan { Text(plan).font(.system(size: 11.5)).foregroundStyle(Theme.tertiary) }
                                     Spacer()
                                     Text(UsageFmt.ago(a.quotaUpdatedAt)).font(.system(size: 11)).foregroundStyle(Theme.tertiary)
@@ -474,10 +482,10 @@ private struct BlockRow: View {
             if let b = usage.liveBlock {
                 let f = usage.blockFraction ?? 0
                 HStack(spacing: 10) {
-                    Text("5 小时窗口").frame(width: 78, alignment: .leading).lineLimit(1)
+                    Text(L10n.t("5-hour window")).frame(width: 100, alignment: .leading).lineLimit(1)
                     QuotaBar(fraction: f, count: 16)
                     Spacer(minLength: 4)
-                    Text("峰值的 \(Fmt.percent(f))").foregroundStyle(Theme.quotaColor(f)).monospacedDigit()
+                    Text(L10n.t("%@ of peak", Fmt.percent(f))).foregroundStyle(Theme.quotaColor(f)).monospacedDigit()
                 }
                 .font(.system(size: 12))
                 Text(BlockText.detail(b))
@@ -494,12 +502,12 @@ private struct BlockRow: View {
 }
 
 enum BlockText {
-    /// "已用 251M · 1.2M/分钟 · 照此速度到 14:00 约 380M · 2 小时 14 分后结束"
+    /// "Used 251M · 1.2M/min · ~380M by 14:00 at this rate · Ends in 2 hours 14 min"
     static func detail(_ b: UsageBlock) -> String {
-        var parts = ["已用 \(UsageFmt.tokens(b.tokens.total))"]
-        if b.tokensPerMinute >= 1 { parts.append("\(UsageFmt.tokens(Int64(b.tokensPerMinute)))/分钟") }
+        var parts = [L10n.t("Used %@", UsageFmt.tokens(b.tokens.total))]
+        if b.tokensPerMinute >= 1 { parts.append(L10n.t("%@/min", UsageFmt.tokens(Int64(b.tokensPerMinute)))) }
         if b.projectedTokens > b.tokens.total {
-            parts.append("照此速度到 \(UsageFmt.clock(b.end)) 约 \(UsageFmt.tokens(b.projectedTokens))")
+            parts.append(L10n.t("~%@ by %@ at this rate", UsageFmt.tokens(b.projectedTokens), UsageFmt.clock(b.end)))
         }
         parts.append(UsageFmt.blockEnds(b.end))
         return parts.joined(separator: " · ")
@@ -507,17 +515,17 @@ enum BlockText {
 
     static func idle(_ u: ToolUsage) -> String {
         guard let last = u.recentBlocks.first(where: { $0.end <= Date() }) ?? u.recentBlocks.first else {
-            return "近 7 天没有用量窗口"
+            return L10n.t("No usage windows in the last 7 days")
         }
-        return "当前没有进行中的窗口 · 上一个 \(UsageFmt.clock(last.start))–\(UsageFmt.clock(last.end)) 用了 \(UsageFmt.tokens(last.tokens.total))"
+        return L10n.t("No live window · last %@–%@ used %@", UsageFmt.clock(last.start), UsageFmt.clock(last.end), UsageFmt.tokens(last.tokens.total))
     }
 
     static func tooltip(_ u: ToolUsage, _ b: UsageBlock) -> String {
-        var s = "5 小时窗口（本机记录估算）：\(detail(b))"
+        var s = L10n.t("5-hour window (local estimate): %@", detail(b))
         if u.peakBlockTokens > 0 {
-            s += "\n近 30 天最大的一个窗口是 \(UsageFmt.tokens(u.peakBlockTokens))，点阵按它的比例画，不代表离官方上限多远"
+            s += "\n" + L10n.t("Largest window in 30 days is %@. The dots scale to that, not to the official cap.", UsageFmt.tokens(u.peakBlockTokens))
         }
-        if u.tool == .claude { s += "\n点击打开 Claude 的官方用量页" }
+        if u.tool == .claude { s += "\n" + L10n.t("Click to open Claude's official usage page") }
         return s
     }
 }
@@ -530,7 +538,7 @@ struct QuotaRow: View {
         let q = quota
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 10) {
-                Text(q.title).frame(width: 78, alignment: .leading).lineLimit(1)
+                Text(q.title).frame(width: 100, alignment: .leading).lineLimit(1)
                 QuotaBar(fraction: q.usedFraction, count: 16)
                 Spacer(minLength: 4)
                 Text(Fmt.percent(q.usedFraction)).foregroundStyle(Theme.quotaColor(q.usedFraction)).monospacedDigit()
@@ -559,14 +567,14 @@ private struct ToolUsagePanel: View {
                 if let plan = u.plan { Text(plan).font(.system(size: 11.5)).foregroundStyle(Theme.secondary) }
             }
             if u.status == .notInstalled {
-                Text("本机没有找到 \(u.tool.title) 的记录").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
+                Text(L10n.t("No %@ records on this Mac", u.tool.title)).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
             } else {
                 // 只有账号额度、没有本机记录也没有金额的（Cursor）不显示空的今日 / 近 30 天
                 if u.hasDaily || u.last30Cost > 0 || u.today.cost > 0 {
                 HStack(alignment: .top) {
-                    stat("今日", u.hasDaily ? UsageFmt.tokenParts(u.today.tokens.total) : nil, cost: u.today.cost)
+                    stat(L10n.t("Today"), u.hasDaily ? UsageFmt.tokenParts(u.today.tokens.total) : nil, cost: u.today.cost)
                     Spacer()
-                    stat("近 30 天", u.hasDaily ? UsageFmt.tokenParts(t30.total) : nil, cost: u.last30Cost)
+                    stat(L10n.t("Last 30 days"), u.hasDaily ? UsageFmt.tokenParts(t30.total) : nil, cost: u.last30Cost)
                 }
                 }
                 if !u.hasDaily && !u.quotas.isEmpty {
@@ -576,10 +584,10 @@ private struct ToolUsagePanel: View {
                 }
                 if u.hasDaily {
                     VStack(spacing: 6) {
-                        LegendRow(swatch: .solid(1, glow: true), name: "输出", value: UsageFmt.tokens(t30.output), swatchWidth: 12)
-                        LegendRow(swatch: .solid(0.6, glow: false), name: "输入", value: UsageFmt.tokens(t30.input), swatchWidth: 12)
-                        LegendRow(swatch: .solid(0.3, glow: false), name: "缓存读", value: UsageFmt.tokens(t30.cacheRead), swatchWidth: 12)
-                        LegendRow(swatch: .solid(0.15, glow: false), name: "缓存写", value: UsageFmt.tokens(t30.cacheWrite), dimmed: true, swatchWidth: 12)
+                        LegendRow(swatch: .solid(1, glow: true), name: L10n.t("Output"), value: UsageFmt.tokens(t30.output), swatchWidth: 12)
+                        LegendRow(swatch: .solid(0.6, glow: false), name: L10n.t("Input"), value: UsageFmt.tokens(t30.input), swatchWidth: 12)
+                        LegendRow(swatch: .solid(0.3, glow: false), name: L10n.t("Cache read"), value: UsageFmt.tokens(t30.cacheRead), swatchWidth: 12)
+                        LegendRow(swatch: .solid(0.15, glow: false), name: L10n.t("Cache write"), value: UsageFmt.tokens(t30.cacheWrite), dimmed: true, swatchWidth: 12)
                     }
                 }
                 if !u.models.isEmpty {
@@ -603,7 +611,7 @@ private struct ToolUsagePanel: View {
                         Text(note).foregroundStyle(Theme.heat)
                     }
                     HStack {
-                        Text("\(u.tool.sourceNote) · 金额\(UsageFmt.costNote(u.costKind))").foregroundStyle(Theme.tertiary)
+                        Text(L10n.t("%@ · cost %@", u.tool.sourceNote, UsageFmt.costNote(u.costKind))).foregroundStyle(Theme.tertiary)
                         Spacer(minLength: 6)
                         if u.tool == .claude { ClaudeUsageButton(compact: true) }
                     }

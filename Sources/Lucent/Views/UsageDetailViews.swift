@@ -7,10 +7,10 @@ enum UsageTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .dashboard: return "看板"
-        case .overview: return "工具与额度"
-        case .heatmap: return "热力图"
-        case .cache: return "缓存"
+        case .dashboard: return L10n.t("Dashboard")
+        case .overview: return L10n.t("Tools & quota")
+        case .heatmap: return L10n.t("Heatmap")
+        case .cache: return L10n.t("Cache")
         }
     }
 }
@@ -20,7 +20,7 @@ enum UsageFilter: String, CaseIterable, Identifiable {
     case all, claude, cursor, opencode, codex
     var id: String { rawValue }
     var tool: AITool? { AITool(rawValue: rawValue) }
-    var title: String { tool?.title ?? "全部" }
+    var title: String { tool?.title ?? L10n.t("All") }
     func includes(_ t: AITool) -> Bool {
         guard let tool else { return t.hasLocalLogs }
         return t == tool
@@ -28,7 +28,7 @@ enum UsageFilter: String, CaseIterable, Identifiable {
 
     /// 筛选按钮：全部 + 当前显示的、有本机记录的工具（隐藏或没装的不出空按钮）
     static func options(_ tools: [ToolUsage]) -> [(UsageFilter, String)] {
-        [(.all, "全部")] + tools.compactMap { u in
+        [(.all, L10n.t("All"))] + tools.compactMap { u in
             u.tool.hasLocalLogs ? UsageFilter(rawValue: u.tool.rawValue).map { ($0, $0.title) } : nil
         }
     }
@@ -67,8 +67,8 @@ enum UsageMetric: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .tokens: return "Token"
-        case .cost: return "金额"
-        case .requests: return "请求数"
+        case .cost: return L10n.t("Amount")
+        case .requests: return L10n.t("Requests")
         }
     }
     func value(_ d: DailyUsage) -> Double {
@@ -89,7 +89,7 @@ enum UsageMetric: String, CaseIterable, Identifiable {
         switch self {
         case .tokens: return UsageFmt.tokens(Int64(v)) + " tok"
         case .cost: return UsageFmt.cost(v)
-        case .requests: return "\(Int(v)) 次"
+        case .requests: return L10n.requests(Int(v))
         }
     }
 }
@@ -301,25 +301,22 @@ enum HeatLevel {
 private struct HeatLegend: View {
     var body: some View {
         HStack(spacing: 4) {
-            Text("少")
+            Text(L10n.t("Less"))
             ForEach(0..<5, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 2.5).fill(.white.opacity(HeatLevel.opacity[i])).frame(width: 10, height: 10)
                     .shadow(color: i == 4 ? .white.opacity(0.6) : .clear, radius: 3)
             }
-            Text("多")
+            Text(L10n.t("More"))
         }
         .font(.system(size: 11)).foregroundStyle(Theme.tertiary)
     }
 }
 
-let weekdayNames = ["一", "二", "三", "四", "五", "六", "日"]
-
 /// 周一 = 0 … 周日 = 6
 func weekdayIndex(_ d: Date) -> Int { (Calendar.current.component(.weekday, from: d) + 5) % 7 }
 
 func dayLabel(_ d: Date) -> String {
-    let c = Calendar.current.dateComponents([.month, .day], from: d)
-    return "\(c.month ?? 0) 月 \(c.day ?? 0) 日 · 周\(weekdayNames[weekdayIndex(d)])"
+    L10n.t("%@ · %@", L10n.Dates.monthDay(d), L10n.Dates.weekdaysMonFirstShort[weekdayIndex(d)])
 }
 
 // MARK: - 热力图
@@ -335,7 +332,7 @@ private struct HeatmapTab: View {
         VStack(spacing: 14) {
             Panel {
                 HStack {
-                    Eyebrow("ACTIVITY · 近一年每天")
+                    Eyebrow(L10n.t("ACTIVITY · last year"))
                     Spacer()
                     Segmented(items: UsageMetric.allCases.map { ($0, $0.title) }, selection: $metric, compact: true)
                     FilterBar(filter: $filter)
@@ -343,7 +340,7 @@ private struct HeatmapTab: View {
                 CalendarHeatmap(history: history, metric: metric)
                     .frame(height: 150)
                 HStack {
-                    Text(history.contains { $0.tokens.total > 0 } ? "数据从 \(firstDay(history)) 开始；Claude Code 自己只保留约 30 天日志，Lucent 会从现在起持续积累" : "还没有数据")
+                    Text(history.contains { $0.tokens.total > 0 } ? L10n.t("Data starts %@. Claude Code keeps about 30 days of logs; Lucent keeps accumulating from now on.", firstDay(history)) : L10n.t("No data yet"))
                         .font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                     Spacer()
                     HeatLegend()
@@ -353,7 +350,7 @@ private struct HeatmapTab: View {
             HStack(alignment: .top, spacing: 14) {
                 Panel {
                     HStack {
-                        Eyebrow("RHYTHM · 星期 × 时段（近 30 天）")
+                        Eyebrow(L10n.t("RHYTHM · weekday × hour (30 days)"))
                         Spacer()
                         HeatLegend()
                     }
@@ -370,7 +367,7 @@ private struct HeatmapTab: View {
     private func firstDay(_ h: [DailyUsage]) -> String {
         guard let d = h.first(where: { $0.tokens.total > 0 })?.day else { return "—" }
         let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
-        return "\(c.year ?? 0) 年 \(c.month ?? 0) 月 \(c.day ?? 0) 日"
+        return L10n.Dates.yearMonthDay(d)
     }
 }
 
@@ -392,7 +389,7 @@ private struct CalendarHeatmap: View {
         let t = HeatLevel.thresholds(values)
 
         VStack(alignment: .leading, spacing: 6) {
-            Text(hover.map { d in "\(dayLabel(d)) · " + (byDay[d].map { metric.format(metric.value($0)) + " · " + UsageFmt.cost($0.cost) + " · \($0.requests) 次请求" } ?? "无记录") } ?? " ")
+            Text(hover.map { d in "\(dayLabel(d)) · " + (byDay[d].map { metric.format(metric.value($0)) + " · " + UsageFmt.cost($0.cost) + " · " + L10n.requests($0.requests) } ?? L10n.t("No activity")) } ?? " ")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.secondary).monospacedDigit()
             GeometryReader { g in
                 let labelW: CGFloat = 22, top: CGFloat = 16
@@ -405,12 +402,12 @@ private struct CalendarHeatmap: View {
                         let d = cal.date(byAdding: .day, value: 7 * w, to: start)!
                         let m = cal.component(.month, from: d)
                         if m != lastMonth && cal.component(.day, from: d) <= 7 {
-                            ctx.draw(Text("\(m)月").font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary),
+                            ctx.draw(Text(L10n.Dates.monthLabel(m)).font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary),
                                      at: CGPoint(x: labelW + CGFloat(w) * step, y: 6), anchor: .leading)
                         }
                         lastMonth = m
                     }
-                    for (i, n) in weekdayNames.enumerated() where i % 2 == 0 {
+                    for (i, n) in L10n.Dates.weekdaysMonFirstVeryShort.enumerated() where i % 2 == 0 {
                         ctx.draw(Text(n).font(.system(size: 9.5)).foregroundStyle(Theme.tertiary),
                                  at: CGPoint(x: 0, y: top + CGFloat(i) * step + cell / 2), anchor: .leading)
                     }
@@ -463,13 +460,13 @@ private struct HourHeatmap: View {
         }
         let t = HeatLevel.thresholds(grid.flatMap { $0 })
         return VStack(alignment: .leading, spacing: 6) {
-            Text(hover.map { "周\(weekdayNames[$0.0]) \($0.1):00–\($0.1 + 1):00 · 近 30 天合计 " + metric.format(grid[$0.0][$0.1]) } ?? " ")
+            Text(hover.map { L10n.t("%@ %d:00–%d:00 · 30-day total %@", L10n.Dates.weekdaysMonFirstShort[$0.0], $0.1, $0.1 + 1, metric.format(grid[$0.0][$0.1])) } ?? " ")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.secondary).monospacedDigit()
             GeometryReader { g in
                 let labelW: CGFloat = 22, bottom: CGFloat = 16
                 let stepX = (g.size.width - labelW) / 24, stepY = (g.size.height - bottom) / 7
                 Canvas { ctx, _ in
-                    for (i, n) in weekdayNames.enumerated() {
+                    for (i, n) in L10n.Dates.weekdaysMonFirstVeryShort.enumerated() {
                         ctx.draw(Text(n).font(.system(size: 9.5)).foregroundStyle(Theme.tertiary),
                                  at: CGPoint(x: 0, y: CGFloat(i) * stepY + stepY / 2), anchor: .leading)
                     }
@@ -520,15 +517,15 @@ private struct HabitStats: View {
         let peakHour = hours.indices.max { hours[$0] < hours[$1] }
         let total = active.reduce(0) { $0 + metric.value($1) }
         Panel {
-            Eyebrow("HABITS · 使用习惯")
+            Eyebrow(L10n.t("HABITS"))
             VStack(spacing: 12) {
-                row("活跃天数", "\(active.count) 天")
-                row("当前连续", "\(streak(current: true)) 天")
-                row("最长连续", "\(streak(current: false)) 天")
-                row("最忙的一天", peak.flatMap { metric.value($0) > 0 ? dayLabel($0.day) : nil } ?? "—")
-                row("当天用量", peak.map { metric.format(metric.value($0)) } ?? "—")
-                row("高峰时段", peakHour.flatMap { hours[$0] > 0 ? "\($0):00–\($0 + 1):00" : nil } ?? "—")
-                row("活跃日均", active.isEmpty ? "—" : metric.format(total / Double(active.count)))
+                row(L10n.t("Active days"), L10n.days(active.count))
+                row(L10n.t("Current streak"), L10n.days(streak(current: true)))
+                row(L10n.t("Longest streak"), L10n.days(streak(current: false)))
+                row(L10n.t("Busiest day"), peak.flatMap { metric.value($0) > 0 ? dayLabel($0.day) : nil } ?? "—")
+                row(L10n.t("That day's usage"), peak.map { metric.format(metric.value($0)) } ?? "—")
+                row(L10n.t("Peak hour"), peakHour.flatMap { hours[$0] > 0 ? "\($0):00–\($0 + 1):00" : nil } ?? "—")
+                row(L10n.t("Active-day avg"), active.isEmpty ? "—" : metric.format(total / Double(active.count)))
             }
         }
     }
@@ -575,20 +572,20 @@ private struct CacheTab: View {
         let hit30 = t30.hitRate ?? 0, hitToday = today.hitRate
         VStack(spacing: 14) {
             HStack(spacing: 14) {
-                StatTile(title: "HIT RATE · 近 30 天", value: (String(format: "%.1f", hit30 * 100), "%"),
-                         caption: "缓存读 \(UsageFmt.tokens(t30.cacheRead)) / 输入侧 \(UsageFmt.tokens(t30.input + t30.cacheRead + t30.cacheWrite))")
-                StatTile(title: "HIT RATE · 今日", value: (hitToday.map { String(format: "%.1f", $0 * 100) } ?? "--", "%"),
-                         caption: hitToday.map { h in h >= hit30 ? "比 30 天平均高 \(String(format: "%.1f", (h - hit30) * 100)) 点" : "比 30 天平均低 \(String(format: "%.1f", (hit30 - h) * 100)) 点" } ?? "今天还没有请求",
+                StatTile(title: L10n.t("HIT RATE · 30 days"), value: (String(format: "%.1f", hit30 * 100), "%"),
+                         caption: L10n.t("Cache read %@ / input-side %@", UsageFmt.tokens(t30.cacheRead), UsageFmt.tokens(t30.input + t30.cacheRead + t30.cacheWrite)))
+                StatTile(title: L10n.t("HIT RATE · today"), value: (hitToday.map { String(format: "%.1f", $0 * 100) } ?? "--", "%"),
+                         caption: hitToday.map { h in h >= hit30 ? L10n.t("%.1f points above the 30-day avg", (h - hit30) * 100) : L10n.t("%.1f points below the 30-day avg", (hit30 - h) * 100) } ?? L10n.t("No requests today"),
                          alert: (hitToday ?? 1) < hit30 - 0.1)
-                StatTile(title: "SAVED · 缓存省下", value: costParts(savings), caption: "按 API 价折算")
+                StatTile(title: L10n.t("SAVED · Cache"), value: costParts(savings), caption: L10n.t("API-equivalent"))
                 StatTile(title: "CACHE WRITE", value: UsageFmt.tokenParts(t30.cacheWrite),
-                         caption: t30.cacheWrite > 0 ? "1 小时缓存占 \(Fmt.percent(Double(w1h) / Double(t30.cacheWrite))) · 其余 5 分钟" : "近 30 天没有缓存写入")
+                         caption: t30.cacheWrite > 0 ? L10n.t("1-hour cache %@ · rest is 5-minute", Fmt.percent(Double(w1h) / Double(t30.cacheWrite))) : L10n.t("No cache writes in 30 days"))
             }
             .frame(height: 128)
             .fixedSize(horizontal: false, vertical: true)
             Panel {
                 HStack {
-                    Eyebrow("COMPOSITION · 每天的 token 构成与命中率")
+                    Eyebrow(L10n.t("COMPOSITION · daily tokens and hit rate"))
                     Spacer()
                     FilterBar(filter: $filter)
                 }
@@ -597,7 +594,7 @@ private struct CacheTab: View {
             .frame(maxHeight: .infinity)
             HStack(alignment: .top, spacing: 14) {
                 Panel {
-                    Eyebrow("LAST 48H · 每小时命中率")
+                    Eyebrow(L10n.t("LAST 48H · hourly hit rate"))
                     HourlyHitChart(hourly: UsageData.mergedHourly(tools))
                 }
                 ModelCachePanel(tools: tools)
@@ -616,7 +613,7 @@ private struct CompositionChart: View {
     let daily: [DailyUsage]
     @State private var hover: Int?
 
-    private static let parts: [(String, Double)] = [("缓存读", 0.85), ("缓存写", 0.45), ("输入", 0.25), ("输出", 0.12)]
+    private static var parts: [(String, Double)] { [(L10n.t("Cache read"), 0.85), (L10n.t("Cache write"), 0.45), (L10n.t("Input"), 0.25), (L10n.t("Output"), 0.12)] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -629,10 +626,10 @@ private struct CompositionChart: View {
                 }
                 HStack(spacing: 5) {
                     Capsule().fill(Theme.heat).frame(width: 14, height: 2).shadow(color: Theme.heat, radius: 3)
-                    Text("命中率")
+                    Text(L10n.t("Hit rate"))
                 }
                 Spacer()
-                Text(hover.map { i in detail(daily[i]) } ?? "把鼠标移到柱子上看当天明细")
+                Text(hover.map { i in detail(daily[i]) } ?? L10n.t("Hover a bar for that day's breakdown"))
                     .foregroundStyle(hover == nil ? Theme.tertiary : Theme.secondary)
                     .monospacedDigit()
             }
@@ -673,7 +670,7 @@ private struct CompositionChart: View {
                         if let r = t.hitRate { hitPts.append(CGPoint(x: x + bar / 2, y: top + h - CGFloat(max(r - lo, 0) / (1 - lo)) * h)) }
                         if i % 5 == 0 || i == n - 1 {
                             let c = Calendar.current.dateComponents([.month, .day], from: d.day)
-                            ctx.draw(Text(i == n - 1 ? "今天" : "\(c.month ?? 0)/\(c.day ?? 0)").font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary),
+                            ctx.draw(Text(i == n - 1 ? L10n.t("Today") : "\(c.month ?? 0)/\(c.day ?? 0)").font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary),
                                      at: CGPoint(x: x + bar / 2, y: g.size.height - 5))
                         }
                     }
@@ -704,7 +701,7 @@ private struct CompositionChart: View {
 
     private func detail(_ d: DailyUsage) -> String {
         let t = d.tokens
-        return "\(dayLabel(d.day)) · 命中 \(t.hitRate.map { String(format: "%.1f%%", $0 * 100) } ?? "—") · 读 \(UsageFmt.tokens(t.cacheRead)) · 写 \(UsageFmt.tokens(t.cacheWrite)) · 入 \(UsageFmt.tokens(t.input)) · 出 \(UsageFmt.tokens(t.output))"
+        return L10n.t("%@ · hit %@ · read %@ · write %@ · in %@ · out %@", dayLabel(d.day), t.hitRate.map { String(format: "%.1f%%", $0 * 100) } ?? "—", UsageFmt.tokens(t.cacheRead), UsageFmt.tokens(t.cacheWrite), UsageFmt.tokens(t.input), UsageFmt.tokens(t.output))
     }
 }
 
@@ -736,8 +733,8 @@ private struct HourlyHitChart: View {
                                 strokes: [(Theme.dim(0.4), 0.5)], markers: .none),
                 ], baseline: h - 4, period: 5.6)
                 HStack {
-                    Text("48 小时前"); Spacer(); Text("纵轴 \(Int(lo * 100))%–100% · 细线 = 请求数")
-                    Spacer(); Text("现在")
+                    Text(L10n.t("48h ago")); Spacer(); Text(L10n.t("Y-axis %d%%–100%% · thin line = requests", Int(lo * 100)))
+                    Spacer(); Text(L10n.t("Now"))
                 }
                 .font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
                 .offset(y: 14)
@@ -755,12 +752,12 @@ private struct ModelCachePanel: View {
         let models = tools.flatMap(\.models).filter { $0.detail.total > 0 }.sorted { $0.detail.total > $1.detail.total }.prefix(5)
         Panel {
             HStack {
-                Eyebrow("BY MODEL · 模型命中率")
+                Eyebrow(L10n.t("BY MODEL · hit rate"))
                 Spacer()
-                Text("缓存读 · 缓存写").font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.tertiary)
+                Text(L10n.t("Cache read · cache write")).font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.tertiary)
             }
             if models.isEmpty {
-                Text("还没有分模型的缓存数据").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
+                Text(L10n.t("No per-model cache data yet")).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
             }
             VStack(spacing: 9) {
                 ForEach(Array(models)) { m in

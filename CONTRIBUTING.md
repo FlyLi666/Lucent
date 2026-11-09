@@ -35,6 +35,6 @@ These keep Lucent light and trustworthy. PRs that break them will be asked to ch
 - Keep each PR focused on one change; describe what and why.
 - For UI changes, attach before/after screenshots (`--snapshots` makes this easy).
 - Make sure `swift build` produces no warnings.
-- Code comments may be in Chinese or English; user-facing strings are currently Chinese.
+- Code comments may be in Chinese or English. User-facing strings go through `L10n.t` and `Resources/{en,zh}.lproj/Localizable.strings` (English is the source language and fallback).
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE) and that you follow our [Code of Conduct](CODE_OF_CONDUCT.md).

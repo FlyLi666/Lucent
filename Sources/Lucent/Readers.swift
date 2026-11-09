@@ -179,10 +179,10 @@ final class NetworkReader {
                 guard (SCNetworkInterfaceGetBSDName(iface) as String?) == name,
                       let type = SCNetworkInterfaceGetInterfaceType(iface) else { continue }
                 if type == kSCNetworkInterfaceTypeIEEE80211 { return "Wi‑Fi" }
-                if type == kSCNetworkInterfaceTypeEthernet { return "以太网" }
+                if type == kSCNetworkInterfaceTypeEthernet { return L10n.t("Ethernet") }
             }
         }
-        if name.hasPrefix("pdp_ip") { return "蜂窝" }   // 蜂窝调制解调器一般不出现在 SCNetworkInterfaceCopyAll 里
+        if name.hasPrefix("pdp_ip") { return L10n.t("Cellular") }   // 蜂窝调制解调器一般不出现在 SCNetworkInterfaceCopyAll 里
         return nil
     }
 

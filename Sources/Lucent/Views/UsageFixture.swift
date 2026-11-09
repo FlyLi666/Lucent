@@ -109,7 +109,7 @@ enum UsageFixture {
                 u.pricing = names.map { n in
                     t.tool == .claude
                         ? PricingEntry(model: n, tool: t.tool, input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25, cacheWrite1h: 10, source: "LiteLLM")
-                        : PricingEntry(model: n, tool: t.tool, source: "OpenCode 自带记录（金额 $0）")
+                        : PricingEntry(model: n, tool: t.tool, source: L10n.t("OpenCode records (cost $0)"))
                 }
             }
             u.models = u.models.map { m in

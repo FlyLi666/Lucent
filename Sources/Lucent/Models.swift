@@ -14,9 +14,9 @@ enum MemoryPressure: Int, Sendable {
 
     var label: String {
         switch self {
-        case .normal: return "正常"
-        case .warning: return "紧张"
-        case .critical: return "严重"
+        case .normal: return L10n.t("Normal")
+        case .warning: return L10n.t("Warning")
+        case .critical: return L10n.t("Severe")
         }
     }
 }
@@ -73,14 +73,14 @@ enum SensorGroup: Int, Sendable, CaseIterable, Comparable {
 
     var title: String {
         switch self {
-        case .cpuP: return "性能核"
-        case .cpuE: return "能效核"
+        case .cpuP: return L10n.t("P-cores")
+        case .cpuE: return L10n.t("E-cores")
         case .gpu: return "GPU"
         case .soc: return "SoC"
-        case .battery: return "电池"
-        case .storage: return "存储"
-        case .wireless: return "无线"
-        case .other: return "其他"
+        case .battery: return L10n.t("Battery")
+        case .storage: return L10n.t("Storage")
+        case .wireless: return L10n.t("Wireless")
+        case .other: return L10n.t("Other")
         }
     }
 
@@ -154,11 +154,11 @@ struct ProcessSnapshot: Sendable {
 extension ProcessInfo.ThermalState {
     var label: String {
         switch self {
-        case .nominal: return "正常"
-        case .fair: return "偏高"
-        case .serious: return "降频中"
-        case .critical: return "危急"
-        @unknown default: return "未知"
+        case .nominal: return L10n.t("Nominal")
+        case .fair: return L10n.t("Fair")
+        case .serious: return L10n.t("Throttling")
+        case .critical: return L10n.t("Critical")
+        @unknown default: return L10n.t("Unknown")
         }
     }
 }

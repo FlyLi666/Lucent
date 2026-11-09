@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Lucent",
+    defaultLocalization: "en",
     platforms: [.macOS(.v26)],          // Liquid Glass API 需要 macOS 26+，macOS 27 直接可用
     targets: [
         .executableTarget(
