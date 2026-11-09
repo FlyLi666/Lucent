@@ -366,7 +366,6 @@ private struct HeatmapTab: View {
 
     private func firstDay(_ h: [DailyUsage]) -> String {
         guard let d = h.first(where: { $0.tokens.total > 0 })?.day else { return "—" }
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
         return L10n.Dates.yearMonthDay(d)
     }
 }

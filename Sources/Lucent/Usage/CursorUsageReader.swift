@@ -246,14 +246,14 @@ final class CursorUsageReader {
             guard http.statusCode == 200, data.count <= 8_000_000,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
-                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: Self.httpUsageError(http.statusCode)
+                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: Self.httpUsageError(http.statusCode))
             }
             // 这个窗口没有事件时，接口回的是空对象 {}，不是带空数组的正常页
             if obj.isEmpty {
                 return CursorEventsPageResult(status: 200, total: 0, events: [], failureReason: nil)
             }
             guard obj["usageEventsDisplay"] != nil || obj["totalUsageEventsCount"] != nil else {
-                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: Self.httpUsageError(http.statusCode)
+                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: Self.httpUsageError(http.statusCode))
             }
             let total = Self.jsonInt(obj["totalUsageEventsCount"])
             let rows = obj["usageEventsDisplay"] as? [[String: Any]] ?? []

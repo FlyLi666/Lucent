@@ -101,7 +101,7 @@ enum L10n {
         static func monthLabel(_ month: Int) -> String {
             let f = DateFormatter()
             f.locale = locale
-            let names = f.shortMonthSymbols
+            let names = f.shortMonthSymbols ?? []
             guard month >= 1, month <= names.count else { return "\(month)" }
             return names[month - 1]
         }
@@ -122,8 +122,8 @@ enum L10n {
             return c
         }
 
-        private static func mondayFirst(_ sundayFirst: [String]) -> [String] {
-            guard sundayFirst.count == 7 else { return sundayFirst }
+        private static func mondayFirst(_ sundayFirst: [String]?) -> [String] {
+            guard let sundayFirst, sundayFirst.count == 7 else { return sundayFirst ?? [] }
             return Array(sundayFirst[1...6]) + [sundayFirst[0]]
         }
 
