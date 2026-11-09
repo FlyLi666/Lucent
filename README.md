@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-A lightweight macOS menu bar monitor for temperature, CPU, memory and network — plus a usage dashboard for AI coding tools (Claude Code, Codex, OpenCode, Cursor). Native Swift, Liquid Glass UI, no third-party dependencies.
+A lightweight macOS menu bar monitor for temperature, CPU, memory and network — plus a usage dashboard for AI coding tools (Claude Code, Codex, OpenCode, Cursor). Native Swift, Liquid Glass UI, no third-party dependencies. The interface follows the system language (English, or Chinese when the preferred language is `zh-*`); you can also pin it in Settings.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -80,7 +80,7 @@ Debug builds (`swift build`) accept a few flags:
 - `--snapshots <dir>` renders the card, every main window section and the menu bar glyphs to PNG after ~20 s and exits. Add `-usageFixture YES` to fill AI views with sample data, `-usage.tab heatmap` etc. to pick a tab.
 - `--snapshots <dir> --hold N` only opens the overview window for N seconds — handy for measuring CPU with `top -pid`.
 - `--usage-dump [--cold]` prints one full usage refresh (never any credentials) and exits; `--cold` uses a fresh temporary cache.
-- Any preference can be overridden for one run, e.g. `-ui.tempUnit f -card.showNet NO`.
+- Any preference can be overridden for one run, e.g. `-ui.tempUnit f -card.showNet NO -ui.language en`.
 
 The app icon is drawn by `scripts/make-icon.swift`; run `scripts/make-icon.sh` to regenerate `Resources/AppIcon.icns`.
 

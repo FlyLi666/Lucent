@@ -101,7 +101,7 @@ enum ClaudePricingTable {
     /// 给 PricingEntry.source 用的一句话
     static func source(for model: String) -> String {
         let (_, isFallback, matched) = rateWithSource(for: model)
-        return isFallback ? "同系列回退（按 \(matched)）" : "LiteLLM"
+        return isFallback ? L10n.t("Family fallback (%@)", matched) : "LiteLLM"
     }
 }
 

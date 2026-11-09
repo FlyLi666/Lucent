@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         sampler.setBaseInterval(Prefs.sampleInterval)
         bar.invalidate()
         bar.render(monitor)
+        buildMainMenu()
     }
 
     // MARK: 菜单栏点击：左键卡片；右键 / Control+点击 菜单；⌥+点击 直接开主窗口
@@ -128,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             openDashboard: { [weak self] in self?.showDashboard() },
             openSettings: { [weak self] in self?.showPreferences() }
         )
+        .environment(\.locale, L10n.locale)
         let host = NSHostingView(rootView: view)
         // 卡片高度固定（进程列表预留 3 行），按内容算一次尺寸即可
         let size = host.fittingSize
@@ -218,16 +220,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.delegate = self
         menu.autoenablesItems = false
 
-        menu.addItem(item("打开主窗口", #selector(openDashboardAction), key: "o"))
-        menu.addItem(item("AI 用量…", #selector(usageAction)))
+        menu.addItem(item(L10n.t("Open Window"), #selector(openDashboardAction), key: "o"))
+        menu.addItem(item(L10n.t("AI Usage…"), #selector(usageAction)))
 
         let interval = Prefs.sampleInterval
         let rate = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        rate.attributedTitle = MenuText.withValue("刷新频率", "\(Int(interval)) 秒")
+        rate.attributedTitle = MenuText.withValue(L10n.t("Refresh"), L10n.t("%d s", Int(interval)))
         let rateMenu = NSMenu()
-        for (v, note) in [(1.0, "更跟手"), (2.0, ""), (5.0, "最省电")] {
+        for (v, note) in [(1.0, L10n.t("Snappier")), (2.0, ""), (5.0, L10n.t("Lowest power"))] {
             let i = item("", #selector(setInterval(_:)))
-            i.attributedTitle = MenuText.withValue("\(Int(v)) 秒", note, small: true)
+            i.attributedTitle = MenuText.withValue(L10n.t("%d s", Int(v)), note, small: true)
             i.representedObject = v
             i.state = v == interval ? .on : .off
             rateMenu.addItem(i)
@@ -237,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         let style = Prefs.style
         let styleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        styleItem.attributedTitle = MenuText.withValue("顶部栏图标", style.title)
+        styleItem.attributedTitle = MenuText.withValue(L10n.t("Menu bar glyph"), style.title)
         let styleMenu = NSMenu()
         for s in BarStyle.allCases {
             let i = item(s.title, #selector(setStyle(_:)))
@@ -250,12 +252,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(styleItem)
 
         menu.addItem(.separator())
-        let login = item("登录时启动", #selector(toggleLogin))
+        let login = item(L10n.t("Launch at login"), #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
-        menu.addItem(item("偏好设置…", #selector(preferencesAction), key: ","))
+        menu.addItem(item(L10n.t("Settings…"), #selector(preferencesAction), key: ","))
         menu.addItem(.separator())
-        menu.addItem(item("退出", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
+        menu.addItem(item(L10n.t("Quit"), #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
 
         // 临时挂到状态项上再模拟点击，菜单出现在系统标准位置
         statusItem.menu = menu
@@ -311,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
 
-        let host = NSHostingController(rootView: DashboardView(monitor: monitor, nav: nav))
+        let host = NSHostingController(rootView: DashboardView(monitor: monitor, nav: nav).environment(\.locale, L10n.locale))
         host.sizingOptions = [.minSize]
         let w = NSWindow(contentViewController: host)
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
@@ -365,20 +367,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 Lucent", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: L10n.t("About Lucent"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(item("偏好设置…", #selector(preferencesAction), key: ","))
+        appMenu.addItem(item(L10n.t("Settings…"), #selector(preferencesAction), key: ","))
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "隐藏 Lucent", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "退出 Lucent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L10n.t("Hide Lucent"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: L10n.t("Quit Lucent"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "窗口")
-        windowMenu.addItem(item("打开主窗口", #selector(openDashboardAction), key: "o"))
-        windowMenu.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        let windowMenu = NSMenu(title: L10n.t("Window"))
+        windowMenu.addItem(item(L10n.t("Open Window"), #selector(openDashboardAction), key: "o"))
+        windowMenu.addItem(withTitle: L10n.t("Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: L10n.t("Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
 

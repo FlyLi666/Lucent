@@ -363,7 +363,7 @@ final class CodexUsageReader {
     static func pricingEntry(for model: String, unsplit: Bool = false) -> PricingEntry {
         let (rate, _, _) = CodexPricingTable.rateWithSource(for: model)
         var source = CodexPricingTable.source(for: model)
-        if unsplit { source += "；sqlite 补的历史只有总数，金额记 0" }
+        if unsplit { source += L10n.t("; sqlite backfill is totals only, cost 0") }
         return PricingEntry(model: model, tool: .codex, input: rate.input * 1_000_000, output: rate.output * 1_000_000,
                              cacheRead: rate.cacheRead * 1_000_000, cacheWrite5m: 0, cacheWrite1h: 0, source: source)
     }
@@ -591,11 +591,11 @@ final class CodexUsageReader {
     private static func buildQuotas(primary: RateLimitWindowCodable?, secondary: RateLimitWindowCodable?) -> [QuotaWindow] {
         var windows: [QuotaWindow] = []
         if let p = primary {
-            windows.append(QuotaWindow(id: "five_hour", title: windowTitle(p.windowMinutes) ?? "5 小时",
+            windows.append(QuotaWindow(id: "five_hour", title: windowTitle(p.windowMinutes) ?? L10n.t("5 hours"),
                                         usedFraction: p.usedPercent / 100, resetsAt: p.resetsAt, detail: nil))
         }
         if let s = secondary {
-            windows.append(QuotaWindow(id: "seven_day", title: windowTitle(s.windowMinutes) ?? "本周",
+            windows.append(QuotaWindow(id: "seven_day", title: windowTitle(s.windowMinutes) ?? L10n.t("This week"),
                                         usedFraction: s.usedPercent / 100, resetsAt: s.resetsAt, detail: nil))
         }
         return windows
@@ -603,8 +603,8 @@ final class CodexUsageReader {
 
     private static func windowTitle(_ minutes: Double?) -> String? {
         guard let minutes, minutes > 0 else { return nil }
-        if minutes < 24 * 60 { return "\(Int((minutes / 60).rounded())) 小时" }
-        return "\(Int((minutes / 1440).rounded())) 天"
+        if minutes < 24 * 60 { return L10n.hours(Int((minutes / 60).rounded())) }
+        return L10n.days(Int((minutes / 1440).rounded()))
     }
 
     private static func decodeJSON(_ line: String) -> [String: Any]? {

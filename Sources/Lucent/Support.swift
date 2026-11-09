@@ -24,12 +24,15 @@ enum Prefs {
     static let cardNet = "card.showNet"
     /// 卡片底部默认页签："top" / "ai"（卡片自己也记着上次选的）
     static let cardBottomTab = "card.bottomTab"
+    /// 界面语言："system" / "en" / "zh"
+    static let language = "ui.language"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
             barStyle: BarStyle.ring.rawValue, interval: 2.0, nativeGlass: true, motion: true,
             barText: BarText.temp.rawValue, alertTemp: 85.0, tempUnit: "c", rateUnit: "bytes",
             cardTemp: true, cardCPU: true, cardMem: true, cardNet: true,
+            language: L10n.Language.system.rawValue,
         ])
     }
 
@@ -51,17 +54,17 @@ enum BarStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .ring: return "刻度环"
-        case .pulse: return "能量线"
-        case .orbit: return "双轨"
+        case .ring: return L10n.t("Tick ring")
+        case .pulse: return L10n.t("Pulse")
+        case .orbit: return L10n.t("Dual orbit")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .ring: return "亮起的刻度 = CPU，旁边是温度"
-        case .pulse: return "迷你脉冲线随 CPU 起伏"
-        case .orbit: return "外圈 CPU，内圈内存，不占字位"
+        case .ring: return L10n.t("Lit ticks = CPU; temperature sits beside the glyph")
+        case .pulse: return L10n.t("A mini pulse line that follows CPU")
+        case .orbit: return L10n.t("Outer ring CPU, inner ring memory — no text")
         }
     }
 }
@@ -72,10 +75,10 @@ enum BarText: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .temp: return "温度"
+        case .temp: return L10n.t("Temperature")
         case .cpu: return "CPU"
-        case .mem: return "内存"
-        case .none: return "不显示"
+        case .mem: return L10n.t("Memory")
+        case .none: return L10n.t("Hidden")
         }
     }
 }
@@ -132,9 +135,9 @@ enum Fmt {
 
     static func duration(_ t: TimeInterval) -> String {
         let m = max(Int(t) / 60, 0), h = m / 60, d = h / 24
-        if d > 0 { return "\(d) 天 \(h % 24) 小时" }
-        if h > 0 { return "\(h) 小时 \(m % 60) 分" }
-        return "\(m) 分钟"
+        if d > 0 { return L10n.t("%@ %@", L10n.days(d), L10n.hours(h % 24)) }
+        if h > 0 { return L10n.t("%@ %@", L10n.hours(h), L10n.minutes(m % 60)) }
+        return L10n.minutes(m)
     }
 }
 

@@ -15,6 +15,7 @@ struct PopoverView: View {
     @AppStorage(Prefs.cardCPU) private var showCPU = true
     @AppStorage(Prefs.cardMem) private var showMem = true
     @AppStorage(Prefs.cardNet) private var showNet = true
+    @AppStorage(Prefs.language) private var language = L10n.Language.system.rawValue
 
     var body: some View {
         let s = monitor.snapshot
@@ -33,6 +34,8 @@ struct PopoverView: View {
         .foregroundStyle(Theme.text)
         .glassShell(radius: 26)
         .environment(\.colorScheme, .dark)
+        .environment(\.locale, L10n.locale)
+        .id(language)
     }
 
     // MARK: 头部
@@ -61,7 +64,7 @@ struct PopoverView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Eyebrow("TEMP · CPU")
-                        Text("峰值 \(Fmt.temp(peak)) · 热状态 \(s.thermal.state.label)")
+                        Text(L10n.t("Peak %@ · thermal %@", Fmt.temp(peak), s.thermal.state.label))
                             .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     }
                     .padding(.bottom, 4)
@@ -88,7 +91,7 @@ struct PopoverView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Eyebrow("CPU")
-                        Text("性能核 \(Fmt.percent(split.p)) · 能效核 \(Fmt.percent(split.e))")
+                        Text(L10n.t("P-cores %@ · E-cores %@", Fmt.percent(split.p), Fmt.percent(split.e)))
                             .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     }
                     .padding(.bottom, 2)
@@ -115,13 +118,13 @@ struct PopoverView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Eyebrow("MEMORY")
                         Spacer()
-                        Text("压力 \(Labels.pressure(mem.pressure))")
+                        Text(L10n.t("Pressure %@", Labels.pressure(mem.pressure)))
                             .font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
                     }
                     LegendRow(swatch: .solid(1, glow: true), name: "App", value: Fmt.gb(mem.app))
-                    LegendRow(swatch: .solid(0.55, glow: false), name: "联动", value: Fmt.gb(mem.wired))
-                    LegendRow(swatch: .solid(0.28, glow: false), name: "已压缩", value: Fmt.gb(mem.compressed))
-                    LegendRow(swatch: .solid(0.12, glow: false), name: "交换", value: Fmt.gb(mem.swapUsed), dimmed: true)
+                    LegendRow(swatch: .solid(0.55, glow: false), name: L10n.t("Wired"), value: Fmt.gb(mem.wired))
+                    LegendRow(swatch: .solid(0.28, glow: false), name: L10n.t("Compressed"), value: Fmt.gb(mem.compressed))
+                    LegendRow(swatch: .solid(0.12, glow: false), name: L10n.t("Swap"), value: Fmt.gb(mem.swapUsed), dimmed: true)
                 }
             }
         }
@@ -165,7 +168,7 @@ struct PopoverView: View {
                 tab("TOP", on: !ai) { UIMotion.run { bottomTab = "top" } }
                 tab("AI", on: ai) { UIMotion.run { bottomTab = "ai" } }
                 Spacer()
-                Text(ai ? "额度 · 今日" : "CPU · MEM")
+                Text(ai ? L10n.t("Quota · today") : "CPU · MEM")
                     .id(ai)
                     .transition(.opacity)
             }
@@ -221,7 +224,7 @@ struct PopoverView: View {
             }
             // 首次打开进程数据还没到：占住 3 行高度，卡片尺寸不跳
             if procs.count < 3 {
-                Text(procs.isEmpty ? "采集中…" : "")
+                Text(procs.isEmpty ? L10n.t("Sampling…") : "")
                     .font(.system(size: 12)).foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, minHeight: CGFloat(3 - procs.count) * 26)
             }
@@ -233,7 +236,7 @@ struct PopoverView: View {
         HStack(spacing: 8) {
             Button(action: openDashboard) {
                 HStack {
-                    Text("打开主窗口").fontWeight(.semibold)
+                    Text(L10n.t("Open Window")).fontWeight(.semibold)
                     Spacer()
                     Text("⌘O").foregroundStyle(Theme.dim(0.7))
                 }
@@ -255,7 +258,7 @@ struct PopoverView: View {
                     .contentShape(Circle())
             }
             .keyboardShortcut(",", modifiers: .command)
-            .help("设置")
+            .help(L10n.t("Settings"))
         }
         .buttonStyle(.plain)
         .padding(.top, 2)
@@ -355,18 +358,18 @@ enum Labels {
 
     static func status(_ s: Snapshot) -> Status {
         if s.thermal.state == .serious || s.thermal.state == .critical || (s.thermal.cpuAvg ?? 0) >= Theme.alertTemp {
-            return Status(text: "温度偏高", alert: true)
+            return Status(text: L10n.t("Warm"), alert: true)
         }
-        if s.mem.pressure != .normal { return Status(text: "内存紧张", alert: true) }
-        if s.cpu.total >= 0.85 { return Status(text: "负载较高", alert: true) }
-        return Status(text: "运行平稳", alert: false)
+        if s.mem.pressure != .normal { return Status(text: L10n.t("Memory pressure"), alert: true) }
+        if s.cpu.total >= 0.85 { return Status(text: L10n.t("High load"), alert: true) }
+        return Status(text: L10n.t("Stable"), alert: false)
     }
 
     static func pressure(_ p: MemoryPressure) -> String {
         switch p {
-        case .normal: return "低"
-        case .warning: return "中"
-        case .critical: return "高"
+        case .normal: return L10n.t("Low")
+        case .warning: return L10n.t("Medium")
+        case .critical: return L10n.t("High")
         }
     }
 

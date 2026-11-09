@@ -42,7 +42,7 @@ final class StatusBarRenderer {
         guard key != lastKey, let button else { return }
         lastKey = key
         button.image = glyph.image()
-        button.setAccessibilityLabel("Lucent：CPU \(Fmt.percent(s.cpu.total))，温度 \(Fmt.temp(temp))，内存 \(Fmt.percent(s.mem.usedFraction))")
+        button.setAccessibilityLabel(L10n.t("Lucent: CPU %@, temperature %@, memory %@", Fmt.percent(s.cpu.total), Fmt.temp(temp), Fmt.percent(s.mem.usedFraction)))
     }
 }
 

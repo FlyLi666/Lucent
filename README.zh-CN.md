@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文**
 
-轻量的 macOS 顶部栏监视器：温度、CPU、内存、网速，外加 AI 编程工具（Claude Code、Codex、OpenCode、Cursor）的用量看板。原生 Swift，Liquid Glass 界面，没有第三方依赖。
+轻量的 macOS 顶部栏监视器：温度、CPU、内存、网速，外加 AI 编程工具（Claude Code、Codex、OpenCode、Cursor）的用量看板。原生 Swift，Liquid Glass 界面，没有第三方依赖。界面跟随系统语言（首选语言是 `zh-*` 时为中文，否则为英文）；也可以在设置里指定。
 
 ![概览](docs/screenshots/overview.png)
 
@@ -80,7 +80,7 @@ cd Lucent
 - `--snapshots <目录>`：约 20 秒后把卡片、主窗口各分区、顶部栏图标渲染成 PNG 然后退出。加 `-usageFixture YES` 用示例数据填充 AI 页面，`-usage.tab heatmap` 之类可以指定页签。
 - `--snapshots <目录> --hold N`：只开概览窗口 N 秒，方便用 `top -pid` 测占用。
 - `--usage-dump [--cold]`：完整刷新一次用量并打印（不会打印任何凭据）后退出；`--cold` 用全新的临时缓存。
-- 任何设置项都可以临时覆盖一次，例如 `-ui.tempUnit f -card.showNet NO`。
+- 任何设置项都可以临时覆盖一次，例如 `-ui.tempUnit f -card.showNet NO -ui.language en`。
 
 程序图标由 `scripts/make-icon.swift` 绘制，改完跑 `scripts/make-icon.sh` 重新生成 `Resources/AppIcon.icns`。
 

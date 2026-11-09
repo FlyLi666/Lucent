@@ -103,7 +103,7 @@ final class OpenCodeUsageReader {
 
         if !unchanged {
             guard let db = ReadOnlySQLite(path: dbPath) else {
-                return Self.emptyResult(.failed("打不开 opencode 的数据库"))
+                return Self.emptyResult(.failed(L10n.t("Can't open the OpenCode database")))
             }
             runIncrementalQuery(db: db, cache: &cache)
             if pendingBacklog {
@@ -131,7 +131,7 @@ final class OpenCodeUsageReader {
         let pricing = models.map { m in
             PricingEntry(model: m.model, tool: .opencode, input: nil, output: nil, cacheRead: nil,
                          cacheWrite5m: nil, cacheWrite1h: nil,
-                         source: m.cost == 0 ? "OpenCode 自带记录（金额 $0）" : "OpenCode 自带记录")
+                         source: m.cost == 0 ? L10n.t("OpenCode records (cost $0)") : L10n.t("OpenCode records"))
         }
 
         let blocks = UsageBlocks.summarize(hours: cache.hours, now: now)

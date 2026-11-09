@@ -38,10 +38,10 @@ enum AITool: String, CaseIterable, Identifiable, Sendable {
     /// 数据来源的一句话说明，显示在主窗口
     var sourceNote: String {
         switch self {
-        case .claude: return "命令行 + 桌面版 · 本机记录"
-        case .cursor: return "桌面版 + 命令行 · 账号用量"
-        case .opencode: return "本机记录"
-        case .codex: return "命令行 + 桌面版 · 本机记录"
+        case .claude: return L10n.t("CLI + desktop · local logs")
+        case .cursor: return L10n.t("Desktop + CLI · account usage")
+        case .opencode: return L10n.t("Local records")
+        case .codex: return L10n.t("CLI + desktop · local logs")
         }
     }
 }

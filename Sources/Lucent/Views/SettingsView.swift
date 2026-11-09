@@ -160,16 +160,16 @@ private struct MenuBarGroup: View {
 
     var body: some View {
         let style = BarStyle(rawValue: barStyle) ?? .ring
-        SettingsGroup(title: "顶部栏", icon: "menubar.rectangle") {
-            SettingRow(title: "图标样式", note: style.subtitle) {
+        SettingsGroup(title: L10n.t("Menu bar"), icon: "menubar.rectangle") {
+            SettingRow(title: L10n.t("Glyph"), note: style.subtitle) {
                 SettingSegments(items: BarStyle.allCases.map { ($0.rawValue, $0.title) }, selection: $barStyle)
             }
-            SettingRow(title: "图标旁显示", note: style == .orbit ? "双轨样式没有字位，这一项不生效" : "顶部栏图标右边的那几个字") {
+            SettingRow(title: L10n.t("Glyph text"), note: style == .orbit ? L10n.t("Dual orbit has no text slot, so this does nothing") : L10n.t("The characters to the right of the glyph")) {
                 SettingSegments(items: BarText.allCases.map { ($0.rawValue, $0.title) }, selection: $barText)
                     .opacity(style == .orbit ? 0.4 : 1)
                     .disabled(style == .orbit)
             }
-            SettingRow(title: "警戒温度", note: "超过它，图标和温度曲线变热色") {
+            SettingRow(title: L10n.t("Alert temperature"), note: L10n.t("Above this, the glyph and temperature chart switch to heat color")) {
                 SettingSegments(items: [75.0, 80, 85, 90, 95].map { ($0, Fmt.temp($0)) }, selection: $alertTemp)
             }
         }
@@ -186,17 +186,17 @@ private struct CardGroup: View {
     @AppStorage(Prefs.cardBottomTab) private var bottomTab = "top"
 
     var body: some View {
-        SettingsGroup(title: "卡片", icon: "rectangle.portrait") {
-            SettingBlock(title: "显示哪些模块", note: "左键点顶部栏图标弹出的卡片；关掉的模块不显示，卡片随之变矮") {
+        SettingsGroup(title: L10n.t("Card"), icon: "rectangle.portrait") {
+            SettingBlock(title: L10n.t("Modules"), note: L10n.t("Left-click the menu bar glyph. Hidden modules shrink the card.")) {
                 HStack(spacing: 8) {
-                    ModuleChip(title: "温度", icon: "thermometer.medium", on: $showTemp)
+                    ModuleChip(title: L10n.t("Temperature"), icon: "thermometer.medium", on: $showTemp)
                     ModuleChip(title: "CPU", icon: "cpu", on: $showCPU)
-                    ModuleChip(title: "内存", icon: "memorychip", on: $showMem)
-                    ModuleChip(title: "网络", icon: "arrow.up.arrow.down", on: $showNet)
+                    ModuleChip(title: L10n.t("Memory"), icon: "memorychip", on: $showMem)
+                    ModuleChip(title: L10n.t("Network"), icon: "arrow.up.arrow.down", on: $showNet)
                 }
             }
-            SettingRow(title: "底部列表", note: "卡片最下面默认显示哪一个") {
-                SettingSegments(items: [("top", "进程 TOP"), ("ai", "AI 用量")], selection: $bottomTab)
+            SettingRow(title: L10n.t("Bottom list"), note: L10n.t("Default tab at the bottom of the card")) {
+                SettingSegments(items: [("top", L10n.t("Top processes")), ("ai", L10n.t("AI usage"))], selection: $bottomTab)
             }
         }
     }
@@ -223,7 +223,7 @@ private struct ModuleChip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(on ? "点一下在卡片里隐藏" : "点一下在卡片里显示")
+        .help(on ? L10n.t("Click to hide on the card") : L10n.t("Click to show on the card"))
     }
 }
 
@@ -234,11 +234,11 @@ private struct UnitsGroup: View {
     @AppStorage(Prefs.rateUnit) private var rateUnit = "bytes"
 
     var body: some View {
-        SettingsGroup(title: "单位", icon: "ruler") {
-            SettingRow(title: "温度") {
-                SettingSegments(items: [("c", "摄氏 °C"), ("f", "华氏 °F")], selection: $tempUnit)
+        SettingsGroup(title: L10n.t("Units"), icon: "ruler") {
+            SettingRow(title: L10n.t("Temperature")) {
+                SettingSegments(items: [("c", L10n.t("Celsius °C")), ("f", L10n.t("Fahrenheit °F"))], selection: $tempUnit)
             }
-            SettingRow(title: "网速", note: rateUnit == "bits" ? "按比特，和宽带套餐的 Mbps 一致" : "按字节，和下载软件显示的一致") {
+            SettingRow(title: L10n.t("Network rate"), note: rateUnit == "bits" ? L10n.t("Bits, matching typical broadband Mbps") : L10n.t("Bytes, matching download-manager speeds")) {
                 SettingSegments(items: [("bytes", "MB/s"), ("bits", "Mbps")], selection: $rateUnit)
             }
         }
@@ -253,15 +253,15 @@ private struct AppearanceGroup: View {
     @AppStorage(Prefs.interval) private var interval = 2.0
 
     var body: some View {
-        SettingsGroup(title: "外观与性能", icon: "sparkles.rectangle.stack") {
-            SettingRow(title: "动效", note: "丝线起伏、扫光、点阵闪烁；低电量模式和系统「减弱动态效果」打开时自动停") {
+        SettingsGroup(title: L10n.t("Look & performance"), icon: "sparkles.rectangle.stack") {
+            SettingRow(title: L10n.t("Motion"), note: L10n.t("Silk threads, sweeps, and blinking dots. Stops in Low Power Mode or Reduce Motion.")) {
                 SettingSwitch(on: $motion)
             }
-            SettingRow(title: "原生液态玻璃", note: "关掉改用磨砂材质") {
+            SettingRow(title: L10n.t("Native Liquid Glass"), note: L10n.t("Off uses a frosted material instead")) {
                 SettingSwitch(on: $nativeGlass)
             }
-            SettingRow(title: "后台刷新", note: "只有顶部栏常驻时按这个间隔；卡片或窗口打开时固定每秒刷新") {
-                SettingSegments(items: [(1.0, "1 秒"), (2.0, "2 秒"), (5.0, "5 秒")], selection: $interval)
+            SettingRow(title: L10n.t("Background refresh"), note: L10n.t("Used while only the menu bar is visible. The card and window refresh once a second.")) {
+                SettingSegments(items: [(1.0, L10n.t("%d s", 1)), (2.0, L10n.t("%d s", 2)), (5.0, L10n.t("%d s", 5))], selection: $interval)
             }
         }
     }
@@ -271,11 +271,11 @@ private struct AppearanceGroup: View {
 
 private struct AIGroup: View {
     var body: some View {
-        SettingsGroup(title: "AI 用量", icon: "sparkles") {
-            SettingBlock(title: "显示哪些工具") {
+        SettingsGroup(title: L10n.t("AI usage"), icon: "sparkles") {
+            SettingBlock(title: L10n.t("Tools to show")) {
                 UsageToolToggles()
             }
-            SettingBlock(title: "账号") {
+            SettingBlock(title: L10n.t("Accounts")) {
                 UsageAccountSettings(store: UsageStore.shared)
             }
         }
@@ -287,10 +287,14 @@ private struct AIGroup: View {
 private struct GeneralGroup: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    @AppStorage(Prefs.language) private var language = L10n.Language.system.rawValue
 
     var body: some View {
-        SettingsGroup(title: "通用", icon: "gearshape") {
-            SettingRow(title: "登录时启动", note: loginError) {
+        SettingsGroup(title: L10n.t("General"), icon: "gearshape") {
+            SettingRow(title: L10n.t("Language"), note: L10n.t("Follows the system language unless you override it.")) {
+                SettingSegments(items: L10n.Language.allCases.map { ($0.rawValue, $0.pickerTitle) }, selection: $language)
+            }
+            SettingRow(title: L10n.t("Launch at login"), note: loginError) {
                 SettingSwitch(on: Binding(
                     get: { launchAtLogin },
                     set: { on in
@@ -304,7 +308,7 @@ private struct GeneralGroup: View {
                     }
                 ))
             }
-            SettingRow(title: "版本") {
+            SettingRow(title: L10n.t("Version")) {
                 Text(Self.version).font(.system(size: 12)).foregroundStyle(Theme.secondary).monospacedDigit()
             }
         }
@@ -312,8 +316,8 @@ private struct GeneralGroup: View {
 
     private static var version: String {
         let info = Bundle.main.infoDictionary
-        let v = info?["CFBundleShortVersionString"] as? String ?? "开发版"
+        let v = info?["CFBundleShortVersionString"] as? String ?? L10n.t("Dev")
         let b = info?["CFBundleVersion"] as? String
-        return b.map { "\(v)（\($0)）" } ?? v
+        return b.map { L10n.t("%@ (%@)", v, $0) } ?? v
     }
 }

@@ -433,7 +433,7 @@ final class UsageStore {
         }
         cursorSession = await worker.readCursorAccount()
         if cursorSession == nil && vaultRecords.isEmpty {
-            localStatus[.cursor] = .failed("未检测到 Cursor 登录账号")
+            localStatus[.cursor] = .failed(L10n.t("No Cursor account signed in"))
             pendingLogins = []
             replaceCursorAccounts([])
             recomputeStatus(.cursor)
@@ -472,7 +472,7 @@ final class UsageStore {
             syncCurrentTokenIntoVault(current)
             await refreshOneCursor(id: current.accountID, account: current, allowRefresh: false, force: force)
         } else {
-            applyCursorQuota(CursorQuotaResult(quotas: [], plan: nil, failureReason: "未找到 Cursor 登录信息"))
+            applyCursorQuota(CursorQuotaResult(quotas: [], plan: nil, failureReason: L10n.t("No Cursor login found")))
         }
 
         let others = vaultRecords.filter { $0.key != currentID }
