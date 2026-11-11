@@ -556,14 +556,16 @@ private struct MemoryPanel: View {
                 Text(L("压力 \(Labels.pressure(mem.pressure)) · 交换 \(Fmt.gb(mem.swapUsed))"))
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
             }
-            HStack(spacing: 14) {
-                MemoryDial(mem: mem, size: 132, radius: 44, thick: 14, valueSize: 30)
+            // 英文图例（Compressed）比中文长：默认窗口宽度下圆环略收、字号小一号，免得截断
+            let en = L10n.isEnglish
+            HStack(spacing: en ? 12 : 14) {
+                MemoryDial(mem: mem, size: en ? 124 : 132, radius: en ? 41 : 44, thick: 14, valueSize: 30)
                 VStack(alignment: .leading, spacing: 8) {
-                    LegendRow(swatch: .solid(1, glow: true), name: L("应用"), value: gb(mem.app), swatchWidth: 12)
-                    LegendRow(swatch: .solid(0.55, glow: false), name: L("联动"), value: gb(mem.wired), swatchWidth: 12)
-                    LegendRow(swatch: .solid(0.28, glow: false), name: L("已压缩"), value: gb(mem.compressed), swatchWidth: 12)
-                    LegendRow(swatch: .solid(0.2, glow: false), name: L("缓存"), value: gb(mem.cached), dimmed: true, swatchWidth: 12)
-                    LegendRow(swatch: .outline, name: L("可用"), value: gb(mem.free), dimmed: true, swatchWidth: 12)
+                    LegendRow(swatch: .solid(1, glow: true), name: L("应用"), value: gb(mem.app), swatchWidth: 12, fontSize: en ? 11 : 12)
+                    LegendRow(swatch: .solid(0.55, glow: false), name: L("联动"), value: gb(mem.wired), swatchWidth: 12, fontSize: en ? 11 : 12)
+                    LegendRow(swatch: .solid(0.28, glow: false), name: L("已压缩"), value: gb(mem.compressed), swatchWidth: 12, fontSize: en ? 11 : 12)
+                    LegendRow(swatch: .solid(0.2, glow: false), name: L("缓存"), value: gb(mem.cached), dimmed: true, swatchWidth: 12, fontSize: en ? 11 : 12)
+                    LegendRow(swatch: .outline, name: L("可用"), value: gb(mem.free), dimmed: true, swatchWidth: 12, fontSize: en ? 11 : 12)
                 }
             }
             Spacer(minLength: 0)

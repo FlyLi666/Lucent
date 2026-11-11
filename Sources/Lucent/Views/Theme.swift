@@ -218,6 +218,7 @@ struct LegendRow: View {
     let value: String
     var dimmed = false
     var swatchWidth: CGFloat = 14
+    var fontSize: CGFloat = 12
 
     var body: some View {
         HStack(spacing: 8) {
@@ -230,10 +231,10 @@ struct LegendRow: View {
                 Capsule().strokeBorder(.white.opacity(0.3), lineWidth: 1)
                     .frame(width: swatchWidth, height: 2)
             }
-            Text(name).frame(maxWidth: .infinity, alignment: .leading)
+            Text(name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).help(name)
             Text(value).monospacedDigit()
         }
-        .font(.system(size: 12))
+        .font(.system(size: fontSize))
         .foregroundStyle(dimmed ? Theme.secondary : Theme.text)
     }
 }
