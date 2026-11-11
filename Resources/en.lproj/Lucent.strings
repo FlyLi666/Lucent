@@ -202,6 +202,7 @@
 "网络 · {0}" = "Net · {0}";
 "进程" = "TOP";
 "额度 · 今日" = "QUOTA · TODAY";
+"今日" = "Today";
 "CPU · 内存" = "CPU · MEM";
 "温度偏高" = "Running hot";
 "内存紧张" = "Low memory";
@@ -253,7 +254,6 @@
 "{0}（{1}）" = "{0} ({1})";
 
 /* UsageDashboard.swift */
-"今日" = "Today";
 "24 小时" = "24h";
 "7 天" = "7d";
 "30 天" = "30d";
@@ -319,10 +319,13 @@
 "少" = "Less";
 "多" = "More";
 "近一年" = "Past year";
-"数据从 {0} 开始" = "Data starts {0}";
+"近一年每日用量热力图" = "Daily usage heatmap, past year";
+"最忙的一天 {0}，{1}" = "Busiest day {0}, {1}";
 "还没有数据" = "No data yet";
+"数据从 {0} 开始" = "Data starts {0}";
 "Claude Code 自己只保留约 30 天日志，更早的用量读不到；Lucent 装上后会一直积累" = "Claude Code keeps only about 30 days of logs, so earlier usage can't be read. Lucent keeps accumulating from the day it's installed.";
 "星期 × 时段 · 近 30 天" = "Weekday × Hour · Last 30 days";
+"近 30 天星期与时段热力图" = "Weekday and hour heatmap, last 30 days";
 " · {0} 次请求" = " · {0} req";
 "无记录" = "No records";
 "{0} {1}:00–{2}:00 · 近 30 天合计 {3}" = "{0} {1}:00–{2}:00 · last 30 days total {3}";
@@ -346,6 +349,8 @@
 "1 小时缓存占 {0} · 其余 5 分钟" = "{0} 1-hour · rest 5-min";
 "近 30 天没有缓存写入" = "No cache writes in the last 30 days";
 "每日构成与命中率" = "Daily Mix and Hit Rate";
+"近 30 天每日 token 构成与命中率图" = "Daily token mix and hit rate, last 30 days";
+"平均命中率 {0}" = "Average hit rate {0}";
 "近 48 小时命中率" = "Hit Rate · Last 48 hours";
 "命中率" = "Hit rate";
 "今天" = "Today";

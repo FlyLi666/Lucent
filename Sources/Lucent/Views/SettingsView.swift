@@ -136,6 +136,7 @@ struct SettingSegments<T: Hashable>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
         .padding(2)

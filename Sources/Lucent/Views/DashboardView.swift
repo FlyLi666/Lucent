@@ -214,6 +214,7 @@ private struct Sidebar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
                 .onHover { inside in
                     UIMotion.run(.easeOut(duration: 0.12)) { hovered = inside ? s : (hovered == s ? nil : hovered) }
                 }

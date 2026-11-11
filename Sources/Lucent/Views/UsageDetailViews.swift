@@ -374,6 +374,11 @@ private struct HeatmapTab: View {
                     Segmented(items: UsageMetric.allCases.map { ($0, $0.title) }, selection: $metric, compact: true)
                 }
                 CalendarHeatmap(history: history, metric: metric)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(L("近一年每日用量热力图"))
+                    .accessibilityValue(history.max { metric.value($0) < metric.value($1) }
+                        .flatMap { metric.value($0) > 0 ? L("最忙的一天 \(dayLabel($0.day))，\(metric.format(metric.value($0)))") : nil }
+                        ?? L("还没有数据"))
                     .frame(height: 150)
                 HStack {
                     Text(history.contains { $0.tokens.total > 0 } ? L("数据从 \(firstDay(history)) 开始") : L("还没有数据"))
@@ -392,6 +397,8 @@ private struct HeatmapTab: View {
                         HeatLegend()
                     }
                     HourHeatmap(hourly: hourly, metric: metric)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(L("近 30 天星期与时段热力图"))
                 }
                 .frame(maxWidth: .infinity)
                 HabitStats(history: history, hourly: hourly, metric: metric)
@@ -623,6 +630,9 @@ private struct CacheTab: View {
             Panel {
                 Eyebrow(L("每日构成与命中率"))
                 CompositionChart(daily: daily)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(L("近 30 天每日 token 构成与命中率图"))
+                    .accessibilityValue(t30.hitRate.map { L("平均命中率 \(Fmt.percent($0))") } ?? L("还没有数据"))
             }
             .frame(maxHeight: .infinity)
             HStack(alignment: .top, spacing: 14) {

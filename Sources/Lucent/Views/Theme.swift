@@ -94,9 +94,10 @@ struct Eyebrow: View {
     }
 
     var body: some View {
+        let cjk = text.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
         Text(L10n.isEnglish ? text.uppercased() : text)
             .font(Theme.mono(size))
-            .tracking(tracking)
+            .tracking(cjk ? tracking * 0.25 : tracking)
             .foregroundStyle(Theme.tertiary)
     }
 }

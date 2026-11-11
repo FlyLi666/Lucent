@@ -165,7 +165,7 @@ struct PopoverView: View {
                 tab(L("进程"), on: !ai) { UIMotion.run { bottomTab = "top" } }
                 tab("AI", on: ai) { UIMotion.run { bottomTab = "ai" } }
                 Spacer()
-                Text(ai ? L("额度 · 今日") : L("CPU · 内存"))
+                Text(ai ? (UsageStore.shared.tools.contains { !$0.quotas.isEmpty } ? L("额度 · 今日") : L("今日")) : L("CPU · 内存"))
                     .id(ai)
                     .transition(.opacity)
             }
@@ -201,6 +201,7 @@ struct PopoverView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     @ViewBuilder
