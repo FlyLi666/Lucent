@@ -152,7 +152,7 @@ final class NetworkReader {
     // MARK: 主接口 / 接口类型（慢变化，最多每 10 秒刷新一次）
 
     private var cachedInterfaceName: String?
-    private var cachedInterfaceKind: String?
+    private var cachedInterfaceKind: InterfaceKind?
     private var lastInterfaceRefresh: UInt64 = 0
     private let interfaceRefreshInterval: UInt64 = 10_000_000_000   // 10s
     private let store: SCDynamicStore? = SCDynamicStoreCreate(nil, "Lucent.NetworkReader" as CFString, nil, nil)
@@ -173,16 +173,16 @@ final class NetworkReader {
         cachedInterfaceKind = Self.kind(forBSDName: bsdName)
     }
 
-    private static func kind(forBSDName name: String) -> String? {
+    private static func kind(forBSDName name: String) -> InterfaceKind? {
         if let interfaces = SCNetworkInterfaceCopyAll() as? [SCNetworkInterface] {
             for iface in interfaces {
                 guard (SCNetworkInterfaceGetBSDName(iface) as String?) == name,
                       let type = SCNetworkInterfaceGetInterfaceType(iface) else { continue }
-                if type == kSCNetworkInterfaceTypeIEEE80211 { return "Wi‑Fi" }
-                if type == kSCNetworkInterfaceTypeEthernet { return "以太网" }
+                if type == kSCNetworkInterfaceTypeIEEE80211 { return .wifi }
+                if type == kSCNetworkInterfaceTypeEthernet { return .ethernet }
             }
         }
-        if name.hasPrefix("pdp_ip") { return "蜂窝" }   // 蜂窝调制解调器一般不出现在 SCNetworkInterfaceCopyAll 里
+        if name.hasPrefix("pdp_ip") { return .cellular }   // 蜂窝调制解调器一般不出现在 SCNetworkInterfaceCopyAll 里
         return nil
     }
 

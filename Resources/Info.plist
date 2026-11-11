@@ -12,6 +12,13 @@
     <string>Lucent</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>zh-Hans</string>
+    </array>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

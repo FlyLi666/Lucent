@@ -8,8 +8,27 @@ import Foundation
 
 @MainActor
 enum UsageDebugDump {
+    /// 截图模式（`--snapshots <目录> --home <目录>`）用假家目录出图：家目录、账号偏好、缓存目录一起换掉。
+    /// 缓存目录必须跟着换，否则假数据会写进真实缓存。
+    static func applySnapshotHome() {
+        let args = CommandLine.arguments
+        guard args.contains("--snapshots"), let i = args.firstIndex(of: "--home"), args.indices.contains(i + 1) else { return }
+        UsageHome.debugOverride = URL(fileURLWithPath: args[i + 1]).standardizedFileURL
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("lucent-snapshot-home-cache")
+        try? FileManager.default.removeItem(at: cache)
+        UsageCacheLocation.debugOverrideDir = cache
+        let suite = "local.lucent.monitor.usage-home-override"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        AccountPrefs.debugStore = defaults
+    }
+
     static func run() async {
         let args = CommandLine.arguments
+        if let summaryIndex = args.firstIndex(of: "--cursor-summary-test"), args.indices.contains(summaryIndex + 1) {
+            CursorUsageReader.debugPrintSummary(path: args[summaryIndex + 1])
+            return
+        }
         if args.contains("--cold") {
             // 固定名字（不随机），方便多次调用接着跑同一个临时缓存，直到真的追完全部历史数据；
             // 想要真正从零开始就手动删掉这个目录
@@ -75,7 +94,11 @@ enum UsageDebugDump {
         for login in store.pendingLogins {
             print("id=\(login.id) tool=\(login.tool.rawValue) email=\(login.maskedEmail ?? "nil") plan=\(redact(login.plan ?? "nil"))")
         }
-        print("cursor keychain ids: \(AccountVault.accountIDs().sorted().joined(separator: ", "))")
+        if UsageVisibility.enabled.contains(.cursor) {
+            print("cursor keychain ids: \(AccountVault.accountIDs().sorted().joined(separator: ", "))")
+        } else {
+            print("cursor keychain ids: (hidden)")
+        }
         print("=== suggestions ===")
         if store.suggestions.isEmpty { print("(none)") }
         for suggestion in store.suggestions {
@@ -98,7 +121,7 @@ enum UsageDebugDump {
             print("daily.count: \(u.daily.count)")
             print("models: \(u.models.prefix(5).map { "\($0.model)=\($0.tokens)tok/$\(String(format: "%.4f", $0.cost))" }.joined(separator: ", "))")
             print("models (all, with request counts): \(u.models.map { "\($0.model)=\($0.tokens)tok/\($0.requests)req" }.joined(separator: ", "))")
-            print("quotas: \(u.quotas.map { "\($0.id)=\(String(format: "%.1f%%", $0.usedFraction * 100))\($0.detail.map { " (\($0))" } ?? "")" }.joined(separator: ", "))")
+            print("quotas: \(u.quotas.map { "\($0.id)=\(String(format: "%.1f%%", $0.usedFraction * 100))\($0.detail.map { " (\($0))" } ?? "") resets=\(resetText($0.resetsAt))" }.joined(separator: ", "))")
             print("quotaUpdatedAt: \(u.quotaUpdatedAt.map(String.init(describing:)) ?? "nil")")
             print("lastActivity: \(u.lastActivity.map(String.init(describing:)) ?? "nil")")
             print(String(format: "tokensPerMinute: %.2f", u.tokensPerMinute))
@@ -196,6 +219,18 @@ enum UsageDebugDump {
         print("codexSqliteBackfill threads=\(sqlite.threads) tokens=\(sqlite.tokens) cost=0 note=sqlite 补的历史只有总数，金额记 0")
         print("backlog claude=\(backlog.claude) opencode=\(backlog.opencode) codex=\(backlog.codex)")
     }
+
+    private static func resetText(_ date: Date?) -> String {
+        guard let date else { return "none" }
+        return isoReset.string(from: date)
+    }
+
+    private static let isoReset: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
 
     private static func describe(_ status: UsageStatus) -> String {
         switch status {

@@ -8,11 +8,11 @@ enum UsageRange: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .today: return "当天"
-        case .last24h: return "24 小时"
-        case .week: return "7 天"
-        case .month: return "30 天"
-        case .all: return "全部"
+        case .today: return L("今日")
+        case .last24h: return L("24 小时")
+        case .week: return L("7 天")
+        case .month: return L("30 天")
+        case .all: return L("全部")
         }
     }
 
@@ -37,11 +37,11 @@ enum UsageSubTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .log: return "请求日志"
-        case .providers: return "供应商"
-        case .models: return "模型"
-        case .projects: return "项目"
-        case .pricing: return "定价"
+        case .log: return L("请求日志")
+        case .providers: return L("按供应商")
+        case .models: return L("按模型")
+        case .projects: return L("按项目")
+        case .pricing: return L("定价")
         }
     }
 }
@@ -129,7 +129,7 @@ struct UsageDashboard: View {
             kpis(slice)
             if more { MoreMetrics(slice: slice) }
             TrendPanel(slice: slice, range: range, metric: $metric)
-                .frame(height: more ? 180 : 210)
+                .frame(height: more ? 168 : 190)
             DetailPanel(slice: slice, tools: tools.filter { f.includes($0.tool) }, sub: $sub, range: range)
                 .frame(maxHeight: .infinity)
         }
@@ -139,11 +139,14 @@ struct UsageDashboard: View {
         let providers = Array(Set(all.buckets.map(\.provider))).sorted()
         let models = Array(Set(all.buckets.filter { provider == nil || $0.provider == provider }.map(\.model))).sorted()
         return HStack(spacing: 8) {
-            Segmented(items: UsageFilter.options(tools), selection: Binding(get: { filter.effective(tools) }, set: { filter = $0 }), compact: true)
+            // 左边管“看谁”（工具、供应商、模型），右边管“看多久、看多细”
+            ToolFilter(filter: $filter)
+            PickMenu(title: L("供应商"), value: $provider, options: providers)
+            PickMenu(title: L("模型"), value: $model, options: models)
             Spacer()
             Button { UIMotion.run(.easeOut(duration: 0.2)) { more.toggle() } } label: {
                 HStack(spacing: 4) {
-                    Text(more ? "收起指标" : "更多指标")
+                    Text(more ? L("收起指标") : L("更多指标"))
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(more ? 180 : 0))
                 }
                 .font(.system(size: 11.5)).foregroundStyle(Theme.dim(0.84))
@@ -153,8 +156,6 @@ struct UsageDashboard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            PickMenu(title: "供应商", value: $provider, options: providers)
-            PickMenu(title: "模型", value: $model, options: models)
             Segmented(items: UsageRange.allCases.map { ($0, $0.title) }, selection: $range, compact: true)
         }
         .onChange(of: filter) { provider = nil; model = nil }
@@ -162,14 +163,14 @@ struct UsageDashboard: View {
 
     private func kpis(_ s: UsageSlice) -> some View {
         HStack(spacing: 12) {
-            StatTile(title: "COST · 总成本", value: costParts(s.cost),
-                     caption: s.count > 0 ? "平均每次 \(UsageFmt.cost(s.cost / Double(s.count)))" : "这段时间没有请求")
-            StatTile(title: "REQUESTS · 请求数", value: (s.count.formatted(), "次"),
-                     caption: s.speed.map { String(format: "平均输出 ≈%.0f tok/s", $0) } ?? "没有可用的耗时数据")
-            StatTile(title: "TOKENS · 总量", value: UsageFmt.tokenParts(s.tokens.total),
-                     caption: "输入 \(UsageFmt.tokens(s.tokens.input)) · 输出 \(UsageFmt.tokens(s.tokens.output))")
-            StatTile(title: "HIT RATE · 缓存命中", value: (s.tokens.hitRate.map { String(format: "%.1f", $0 * 100) } ?? "--", "%"),
-                     caption: "缓存省下 \(UsageFmt.cost(s.savings))")
+            StatTile(title: L("金额"), value: costParts(s.cost),
+                     caption: s.count > 0 ? L("平均每次 \(UsageFmt.cost(s.cost / Double(s.count)))") : L("这段时间没有请求"))
+            StatTile(title: L("请求数"), value: (s.count.formatted(), L("次")),
+                     caption: s.speed.map { L("平均输出 \(String(format: "≈%.0f tok/s", $0))") } ?? L("没有可用的耗时数据"))
+            StatTile(title: L("Token"), value: UsageFmt.tokenParts(s.tokens.total),
+                     caption: L("输入 \(UsageFmt.tokens(s.tokens.input)) · 输出 \(UsageFmt.tokens(s.tokens.output))"))
+            StatTile(title: L("缓存命中率"), value: (s.tokens.hitRate.map { String(format: "%.1f", $0 * 100) } ?? "--", "%"),
+                     caption: L("缓存省下 \(UsageFmt.cost(s.savings))"))
         }
         .frame(height: 118)
     }
@@ -187,7 +188,7 @@ private struct PickMenu: View {
 
     var body: some View {
         Menu {
-            Button("全部\(title)") { value = nil }
+            Button(L("全部\(title)")) { value = nil }
             if !options.isEmpty { Divider() }
             ForEach(options, id: \.self) { o in
                 Button { value = o } label: {
@@ -196,7 +197,7 @@ private struct PickMenu: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Text(value ?? title).lineLimit(1)
+                Text(value ?? L("全部\(title)")).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
             .font(.system(size: 11.5, weight: value == nil ? .regular : .semibold))
@@ -220,14 +221,14 @@ private struct MoreMetrics: View {
     var body: some View {
         let t = slice.tokens, n = max(slice.count, 1)
         let items: [(String, String)] = [
-            ("输入", UsageFmt.tokens(t.input)),
-            ("输出", UsageFmt.tokens(t.output)),
-            ("缓存读", UsageFmt.tokens(t.cacheRead)),
-            ("缓存写", UsageFmt.tokens(t.cacheWrite)),
-            ("其中 1 小时缓存", t.cacheWrite > 0 ? Fmt.percent(Double(slice.write1h) / Double(t.cacheWrite)) : "—"),
-            ("平均每次 token", UsageFmt.tokens(t.total / Int64(n))),
-            ("平均每次输出", UsageFmt.tokens(t.output / Int64(n))),
-            ("活跃小时", "\(Set(slice.buckets.map(\.start)).count)"),
+            (L("输入"), UsageFmt.tokens(t.input)),
+            (L("输出"), UsageFmt.tokens(t.output)),
+            (L("缓存读"), UsageFmt.tokens(t.cacheRead)),
+            (L("缓存写"), UsageFmt.tokens(t.cacheWrite)),
+            (L("其中 1 小时缓存"), t.cacheWrite > 0 ? Fmt.percent(Double(slice.write1h) / Double(t.cacheWrite)) : "—"),
+            (L("平均每次 token"), UsageFmt.tokens(t.total / Int64(n))),
+            (L("平均每次输出"), UsageFmt.tokens(t.output / Int64(n))),
+            (L("活跃小时"), "\(Set(slice.buckets.map(\.start)).count)"),
         ]
         Card(radius: 16, padding: EdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18)) {
             HStack(spacing: 0) {
@@ -259,7 +260,7 @@ private struct TrendPanel: View {
         let top = max(values.max() ?? 0, 1) * 1.12
         Panel {
             HStack(spacing: 12) {
-                Eyebrow("TREND · 使用趋势 · \(range.title)")
+                Eyebrow(L("使用趋势"))
                 Text(hover.map { i in "\(bins[i].label) · \(metric.format(values[i]))" + detail(bins[i].items) } ?? " ")
                     .font(.system(size: 11.5)).foregroundStyle(Theme.secondary).monospacedDigit().lineLimit(1)
                 Spacer()
@@ -308,13 +309,17 @@ private struct TrendPanel: View {
                     }
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(L("使用趋势图"))
+            .accessibilityValue(values.indices.max { values[$0] < values[$1] }
+                .map { L("最高 \(bins[$0].label)，\(metric.format(values[$0]))") } ?? "")
         }
     }
 
     private func detail(_ items: [UsageBucket]) -> String {
         let t = items.reduce(TokenCounts()) { $0 + $1.tokens }
         let r = items.reduce(0) { $0 + $1.requests }
-        return " · \(r) 次 · 命中 \(t.hitRate.map { String(format: "%.0f%%", $0 * 100) } ?? "—") · \(UsageFmt.cost(items.reduce(0) { $0 + $1.cost }))"
+        return L(" · \(r) 次 · 命中 \(t.hitRate.map { String(format: "%.0f%%", $0 * 100) } ?? "—") · \(UsageFmt.cost(items.reduce(0) { $0 + $1.cost }))")
     }
 
     struct Bin { var start: Date; var label: String; var tick: String; var items: [UsageBucket] = [] }
@@ -324,20 +329,20 @@ private struct TrendPanel: View {
         let cal = Calendar.current
         let hourF = DateFormatter(); hourF.dateFormat = "HH:00"
         let dayF = DateFormatter(); dayF.dateFormat = "M/d"
-        let fullF = DateFormatter(); fullF.dateFormat = "M 月 d 日 HH:00"
-        let dayFull = DateFormatter(); dayFull.dateFormat = "M 月 d 日"
+        let dayFull = DateFormatter(); dayFull.locale = L10n.locale; dayFull.setLocalizedDateFormatFromTemplate("MMMd")
+        let full: (Date) -> String = { dayFull.string(from: $0) + " " + hourF.string(from: $0) }
         var start: Date, step: TimeInterval, count: Int
         var tick: (Date) -> String, label: (Date) -> String
         switch range {
         case .today:
             start = cal.startOfDay(for: now); step = 3600; count = 24
-            tick = { hourF.string(from: $0) }; label = { fullF.string(from: $0) }
+            tick = { hourF.string(from: $0) }; label = { full($0) }
         case .last24h:
             start = range.start(now)!; step = 3600; count = 24
-            tick = { hourF.string(from: $0) }; label = { fullF.string(from: $0) }
+            tick = { hourF.string(from: $0) }; label = { full($0) }
         case .week:
             start = range.start(now)!; step = 6 * 3600; count = 28
-            tick = { dayF.string(from: $0) }; label = { fullF.string(from: $0) + " 起 6 小时" }
+            tick = { dayF.string(from: $0) }; label = { full($0) + L(" 起 6 小时") }
         case .month:
             start = range.start(now)!; step = 86400; count = 30
             tick = { dayF.string(from: $0) }; label = { dayFull.string(from: $0) }
@@ -348,7 +353,7 @@ private struct TrendPanel: View {
             step = weekly ? 7 * 86400 : 86400
             start = cal.startOfDay(for: first)
             count = max(Int(ceil(Double(days) * 86400 / step)), 1)
-            tick = { dayF.string(from: $0) }; label = { dayFull.string(from: $0) + (weekly ? " 起一周" : "") }
+            tick = { dayF.string(from: $0) }; label = { dayFull.string(from: $0) + (weekly ? L(" 起一周") : "") }
         }
         var bins = (0..<count).map { i -> Bin in
             let d = start.addingTimeInterval(Double(i) * step)
@@ -377,22 +382,32 @@ private struct DetailPanel: View {
                 Spacer()
                 Text(note).font(.system(size: 11.5)).foregroundStyle(Theme.tertiary).monospacedDigit()
             }
-            switch sub {
-            case .log: RequestLog(requests: slice.requests, today: range == .today || range == .last24h)
-            case .providers: GroupTable(rows: group(slice.buckets) { "\($0.tool.title)|\($0.provider)" }, kind: .provider)
-            case .models: GroupTable(rows: group(slice.buckets) { "\($0.tool.title)|\($0.model)" }, kind: .model)
-            case .projects: ProjectTable(projects: tools.flatMap(\.projects))
-            case .pricing: PricingTable(entries: tools.flatMap(\.pricing))
+            VStack(alignment: .leading, spacing: 12) {
+                switch sub {
+                case .log: RequestLog(requests: slice.requests, today: range == .today || range == .last24h)
+                case .providers: GroupTable(rows: group(slice.buckets) { "\($0.tool.title)|\($0.provider)" }, kind: .provider)
+                case .models: GroupTable(rows: group(slice.buckets) { "\($0.tool.title)|\($0.model)" }, kind: .model)
+                case .projects: ProjectTable(projects: tools.flatMap(\.projects))
+                case .pricing: PricingTable(entries: tools.flatMap(\.pricing))
+                }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
+            // 列表底部淡出，不留被切一半的行；滚到底时留出空白，最后一行不会停在淡出区里
+            .contentMargins(.bottom, 22, for: .scrollContent)
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.86),
+                                         .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
         }
     }
 
     private var note: String {
         switch sub {
-        case .log: return "共 \(slice.count.formatted()) 次请求，列出最近 \(slice.requests.count) 条"
-        case .projects: return "近 30 天（不随时间范围变化）"
-        case .pricing: return "美元 / 百万 token"
-        default: return range.title
+        // 列全了就不再报条数；只在没列全时说明只有最近多少条
+        case .log:
+            return slice.requests.count < slice.count
+                ? L("最近 \(slice.requests.count.formatted()) 条，共 \(slice.count.formatted()) 次") : ""
+        case .projects: return L("固定近 30 天")
+        case .pricing: return L("美元 / 百万 token")
+        default: return ""
         }
     }
 
@@ -432,9 +447,9 @@ private struct GroupTable: View {
 
     var body: some View {
         let total = Double(max(rows.reduce(Int64(0)) { $0 + $1.tokens.total }, 1))
-        TableHeader(cols: [(kind == .provider ? "供应商" : "模型", nil, .leading), ("占比", 150, .leading), ("请求", 64, .trailing),
-                           ("输入", 64, .trailing), ("输出", 64, .trailing), ("命中", 50, .trailing), ("速度", 70, .trailing),
-                           ("TOKEN", 64, .trailing), ("成本", 74, .trailing)])
+        TableHeader(cols: [(kind == .provider ? L("供应商") : L("模型"), nil, .leading), (L("占比"), 150, .leading), (L("请求"), 64, .trailing),
+                           (L("输入"), 64, .trailing), (L("输出"), 64, .trailing), (L("命中"), 50, .trailing), (L("速度"), 70, .trailing),
+                           (L("Token"), 64, .trailing), (L("金额"), 74, .trailing)])
         if rows.isEmpty { Empty() }
         ScrollView {
             VStack(spacing: 2) {
@@ -469,11 +484,11 @@ private struct RequestLog: View {
     let today: Bool
     @State private var hover: String?
 
-    static let cols: [(String, CGFloat?, Alignment)] = [
-        ("时间", 86, .leading), ("应用", 66, .leading), ("供应商", 76, .leading), ("模型 · 项目", nil, .leading),
-        ("新增输入", 60, .trailing), ("输出", 56, .trailing), ("缓存命中", 64, .trailing), ("缓存写", 56, .trailing),
-        ("成本", 64, .trailing), ("速度", 84, .trailing),
-    ]
+    static var cols: [(String, CGFloat?, Alignment)] { [
+        (L("时间"), 86, .leading), (L("应用"), 66, .leading), (L("供应商"), 76, .leading), (L("模型 · 项目"), nil, .leading),
+        (L("新增输入"), 60, .trailing), (L("输出"), 56, .trailing), (L("缓存命中"), 76, .trailing), (L("缓存写"), 76, .trailing),
+        (L("金额"), 64, .trailing), (L("速度"), 84, .trailing),
+    ] }
 
     var body: some View {
         TableHeader(cols: Self.cols)
@@ -493,14 +508,14 @@ private struct RequestLog: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         cell(UsageFmt.tokens(t.input), 60)
                         cell(UsageFmt.tokens(t.output), 56)
-                        cell(UsageFmt.tokens(t.cacheRead), 64)
-                        cell(UsageFmt.tokens(t.cacheWrite), 56)
+                        cell(UsageFmt.tokens(t.cacheRead), 76)
+                        cell(UsageFmt.tokens(t.cacheWrite), 76)
                         cell(r.cost > 0 ? String(format: "$%.4f", r.cost) : "—", 64, strong: true)
                         cell(speed(r).0, 84, unit: speed(r).1)
                     }
                     .font(.system(size: 12)).monospacedDigit()
                     .padding(.horizontal, 8)
-                    .frame(height: 36)
+                    .frame(height: 32)
                     .background(hover == r.id ? .white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
                     .onHover { hover = $0 ? r.id : (hover == r.id ? nil : hover) }
                 }
@@ -524,8 +539,8 @@ private struct ProjectTable: View {
     var body: some View {
         let rows = projects.sorted { $0.tokens.total > $1.tokens.total }
         let total = Double(max(rows.reduce(Int64(0)) { $0 + $1.tokens.total }, 1))
-        TableHeader(cols: [("项目", nil, .leading), ("占比", 150, .leading), ("请求", 64, .trailing), ("命中", 50, .trailing),
-                           ("最近活动", 84, .trailing), ("TOKEN", 64, .trailing), ("成本", 74, .trailing)])
+        TableHeader(cols: [(L("项目"), nil, .leading), (L("占比"), 150, .leading), (L("请求"), 64, .trailing), (L("命中"), 50, .trailing),
+                           (L("最近活动"), 84, .trailing), (L("Token"), 64, .trailing), (L("金额"), 74, .trailing)])
         if rows.isEmpty { Empty() }
         ScrollView {
             VStack(spacing: 2) {
@@ -554,8 +569,8 @@ private struct ProjectTable: View {
 private struct PricingTable: View {
     let entries: [PricingEntry]
     var body: some View {
-        TableHeader(cols: [("模型", nil, .leading), ("输入", 70, .trailing), ("输出", 70, .trailing), ("缓存读", 70, .trailing),
-                           ("缓存写 5 分钟", 92, .trailing), ("缓存写 1 小时", 92, .trailing), ("来源", 190, .leading)])
+        TableHeader(cols: [(L("模型"), nil, .leading), (L("输入"), 70, .trailing), (L("输出"), 70, .trailing), (L("缓存读"), 70, .trailing),
+                           (L("缓存写 5 分钟"), 92, .trailing), (L("缓存写 1 小时"), 92, .trailing), (L("来源"), 190, .leading)])
         if entries.isEmpty { Empty() }
         ScrollView {
             VStack(spacing: 2) {
@@ -607,7 +622,7 @@ private struct TableHeader: View {
 
 private struct Empty: View {
     var body: some View {
-        Text("这段时间没有记录").font(.system(size: 12)).foregroundStyle(Theme.tertiary).padding(.top, 6)
+        Text(L("这段时间没有记录")).font(.system(size: 12)).foregroundStyle(Theme.tertiary).padding(.top, 6)
     }
 }
 

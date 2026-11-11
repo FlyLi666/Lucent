@@ -16,8 +16,9 @@ struct SettingsPage: View {
                 }
                 VStack(spacing: 14) {
                     AppearanceGroup()
-                    AIGroup()
+                    // 通用（含语言）排在 AI 用量前面：AI 那组很长，语言项不能被挤到要滚动才看得见
                     GeneralGroup()
+                    AIGroup()
                 }
             }
             .padding(.bottom, 8)
@@ -160,16 +161,16 @@ private struct MenuBarGroup: View {
 
     var body: some View {
         let style = BarStyle(rawValue: barStyle) ?? .ring
-        SettingsGroup(title: "顶部栏", icon: "menubar.rectangle") {
-            SettingRow(title: "图标样式", note: style.subtitle) {
+        SettingsGroup(title: L("顶部栏"), icon: "menubar.rectangle") {
+            SettingRow(title: L("图标样式"), note: style.subtitle) {
                 SettingSegments(items: BarStyle.allCases.map { ($0.rawValue, $0.title) }, selection: $barStyle)
             }
-            SettingRow(title: "图标旁显示", note: style == .orbit ? "双轨样式没有字位，这一项不生效" : "顶部栏图标右边的那几个字") {
+            SettingRow(title: L("图标旁显示"), note: style == .orbit ? L("双轨样式没有字位，这一项不生效") : L("顶部栏图标右边的那几个字")) {
                 SettingSegments(items: BarText.allCases.map { ($0.rawValue, $0.title) }, selection: $barText)
                     .opacity(style == .orbit ? 0.4 : 1)
                     .disabled(style == .orbit)
             }
-            SettingRow(title: "警戒温度", note: "超过它，图标和温度曲线变热色") {
+            SettingRow(title: L("警戒温度"), note: L("超过它，图标和温度曲线变热色")) {
                 SettingSegments(items: [75.0, 80, 85, 90, 95].map { ($0, Fmt.temp($0)) }, selection: $alertTemp)
             }
         }
@@ -186,17 +187,17 @@ private struct CardGroup: View {
     @AppStorage(Prefs.cardBottomTab) private var bottomTab = "top"
 
     var body: some View {
-        SettingsGroup(title: "卡片", icon: "rectangle.portrait") {
-            SettingBlock(title: "显示哪些模块", note: "左键点顶部栏图标弹出的卡片；关掉的模块不显示，卡片随之变矮") {
+        SettingsGroup(title: L("卡片"), icon: "rectangle.portrait") {
+            SettingBlock(title: L("显示哪些模块"), note: L("左键点顶部栏图标弹出的卡片；关掉的模块不显示，卡片随之变矮")) {
                 HStack(spacing: 8) {
-                    ModuleChip(title: "温度", icon: "thermometer.medium", on: $showTemp)
+                    ModuleChip(title: L("温度"), icon: "thermometer.medium", on: $showTemp)
                     ModuleChip(title: "CPU", icon: "cpu", on: $showCPU)
-                    ModuleChip(title: "内存", icon: "memorychip", on: $showMem)
-                    ModuleChip(title: "网络", icon: "arrow.up.arrow.down", on: $showNet)
+                    ModuleChip(title: L("内存"), icon: "memorychip", on: $showMem)
+                    ModuleChip(title: L("网络"), icon: "arrow.up.arrow.down", on: $showNet)
                 }
             }
-            SettingRow(title: "底部列表", note: "卡片最下面默认显示哪一个") {
-                SettingSegments(items: [("top", "进程 TOP"), ("ai", "AI 用量")], selection: $bottomTab)
+            SettingRow(title: L("底部列表"), note: L("卡片最下面默认显示哪一个")) {
+                SettingSegments(items: [("top", L("进程 TOP")), ("ai", L("AI 用量"))], selection: $bottomTab)
             }
         }
     }
@@ -215,7 +216,7 @@ private struct ModuleChip: View {
                     .scaleEffect(on ? 1 : 0.88)
                 Text(title).font(.system(size: 11.5, weight: on ? .semibold : .regular))
             }
-            .foregroundStyle(on ? .white : Theme.dim(0.45))
+            .foregroundStyle(on ? .white : Theme.dim(0.55))
             .frame(maxWidth: .infinity)
             .frame(height: 58)
             .background(.white.opacity(on ? 0.12 : 0.03), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
@@ -223,7 +224,7 @@ private struct ModuleChip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(on ? "点一下在卡片里隐藏" : "点一下在卡片里显示")
+        .help(on ? L("点一下在卡片里隐藏") : L("点一下在卡片里显示"))
     }
 }
 
@@ -234,11 +235,11 @@ private struct UnitsGroup: View {
     @AppStorage(Prefs.rateUnit) private var rateUnit = "bytes"
 
     var body: some View {
-        SettingsGroup(title: "单位", icon: "ruler") {
-            SettingRow(title: "温度") {
-                SettingSegments(items: [("c", "摄氏 °C"), ("f", "华氏 °F")], selection: $tempUnit)
+        SettingsGroup(title: L("单位"), icon: "ruler") {
+            SettingRow(title: L("温度")) {
+                SettingSegments(items: [("c", L("摄氏 °C")), ("f", L("华氏 °F"))], selection: $tempUnit)
             }
-            SettingRow(title: "网速", note: rateUnit == "bits" ? "按比特，和宽带套餐的 Mbps 一致" : "按字节，和下载软件显示的一致") {
+            SettingRow(title: L("网速"), note: rateUnit == "bits" ? L("按比特，和宽带套餐的 Mbps 一致") : L("按字节，和下载软件显示的一致")) {
                 SettingSegments(items: [("bytes", "MB/s"), ("bits", "Mbps")], selection: $rateUnit)
             }
         }
@@ -253,15 +254,15 @@ private struct AppearanceGroup: View {
     @AppStorage(Prefs.interval) private var interval = 2.0
 
     var body: some View {
-        SettingsGroup(title: "外观与性能", icon: "sparkles.rectangle.stack") {
-            SettingRow(title: "动效", note: "丝线起伏、扫光、点阵闪烁；低电量模式和系统「减弱动态效果」打开时自动停") {
+        SettingsGroup(title: L("外观与性能"), icon: "sparkles.rectangle.stack") {
+            SettingRow(title: L("动效"), note: L("丝线起伏、扫光、点阵闪烁；低电量模式和系统「减弱动态效果」打开时自动停")) {
                 SettingSwitch(on: $motion)
             }
-            SettingRow(title: "原生液态玻璃", note: "关掉改用磨砂材质") {
+            SettingRow(title: L("原生液态玻璃"), note: L("关掉改用磨砂材质")) {
                 SettingSwitch(on: $nativeGlass)
             }
-            SettingRow(title: "后台刷新", note: "只有顶部栏常驻时按这个间隔；卡片或窗口打开时固定每秒刷新") {
-                SettingSegments(items: [(1.0, "1 秒"), (2.0, "2 秒"), (5.0, "5 秒")], selection: $interval)
+            SettingRow(title: L("后台刷新"), note: L("只有顶部栏常驻时按这个间隔；卡片或窗口打开时固定每秒刷新")) {
+                SettingSegments(items: [(1.0, L("1 秒")), (2.0, L("2 秒")), (5.0, L("5 秒"))], selection: $interval)
             }
         }
     }
@@ -271,11 +272,11 @@ private struct AppearanceGroup: View {
 
 private struct AIGroup: View {
     var body: some View {
-        SettingsGroup(title: "AI 用量", icon: "sparkles") {
-            SettingBlock(title: "显示哪些工具") {
+        SettingsGroup(title: L("AI 用量"), icon: "sparkles") {
+            SettingBlock(title: L("显示哪些工具")) {
                 UsageToolToggles()
             }
-            SettingBlock(title: "账号") {
+            SettingBlock(title: L("账号")) {
                 UsageAccountSettings(store: UsageStore.shared)
             }
         }
@@ -287,10 +288,16 @@ private struct AIGroup: View {
 private struct GeneralGroup: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    @State private var language = L10n.preference
 
     var body: some View {
-        SettingsGroup(title: "通用", icon: "gearshape") {
-            SettingRow(title: "登录时启动", note: loginError) {
+        SettingsGroup(title: L("通用"), icon: "gearshape") {
+            SettingRow(title: L("语言")) {
+                // 语言名用各自的语言写，不翻译：看不懂当前界面语言的人也能认出自己的
+                SettingSegments(items: [(AppLanguage.system, L("跟随系统")), (.zhHans, "简体中文"), (.en, "English")],
+                                selection: Binding(get: { language }, set: { language = $0; L10n.setPreference($0) }))
+            }
+            SettingRow(title: L("登录时启动"), note: loginError) {
                 SettingSwitch(on: Binding(
                     get: { launchAtLogin },
                     set: { on in
@@ -304,7 +311,7 @@ private struct GeneralGroup: View {
                     }
                 ))
             }
-            SettingRow(title: "版本") {
+            SettingRow(title: L("版本")) {
                 Text(Self.version).font(.system(size: 12)).foregroundStyle(Theme.secondary).monospacedDigit()
             }
         }
@@ -312,8 +319,8 @@ private struct GeneralGroup: View {
 
     private static var version: String {
         let info = Bundle.main.infoDictionary
-        let v = info?["CFBundleShortVersionString"] as? String ?? "开发版"
+        let v = info?["CFBundleShortVersionString"] as? String ?? L("开发版")
         let b = info?["CFBundleVersion"] as? String
-        return b.map { "\(v)（\($0)）" } ?? v
+        return b.map { L("\(v)（\($0)）") } ?? v
     }
 }

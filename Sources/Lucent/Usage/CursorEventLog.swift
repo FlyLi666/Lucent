@@ -59,8 +59,8 @@ final class CursorEventLog {
     private static let maxPages = 40
     private static let overlapMS: Int64 = 6 * 3600 * 1000
     private static let windowMS: Int64 = 30 * 24 * 3600 * 1000
-    private static let waitingReason = "等 Cursor 刷新登录"
-    private static let expiredReason = "登录已过期，在 Cursor 里重新登录这个账号即可"
+    private static var waitingReason: String { L("等 Cursor 刷新登录") }
+    private static var expiredReason: String { L("登录已过期，在 Cursor 里重新登录这个账号即可") }
 
     private let cacheFile: URL
     private let reader: CursorUsageReader
@@ -124,13 +124,13 @@ final class CursorEventLog {
                     break
                 }
                 if added == 0 {
-                    failure = "用量分页没有前进"
+                    failure = L("用量分页没有前进")
                     break
                 }
                 page += 1
             }
             if !complete && failure == nil {
-                failure = "用量太多，这次没拉完"
+                failure = L("用量太多，这次没拉完")
             }
             if unauthorized && allowRefresh && attempt == 0, let rotated = await reader.refreshedAccount(current) {
                 current = rotated

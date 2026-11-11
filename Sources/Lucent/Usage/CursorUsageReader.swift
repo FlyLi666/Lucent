@@ -35,7 +35,7 @@ final class CursorUsageReader {
         .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb").path
     /// Cursor 客户端公开的 OAuth client_id，不是用户密钥
     private static let oauthClientID = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB"
-    private static let expiredReason = "登录已过期，在 Cursor 里重新登录这个账号即可"
+    private static var expiredReason: String { L("登录已过期，在 Cursor 里重新登录这个账号即可") }
 
     #if DEBUG
     /// `--cursor-db`：只读一份 sqlite .backup 副本，不碰正在用的库
@@ -109,7 +109,7 @@ final class CursorUsageReader {
         return Data(base64Encoded: base64)
     }
 
-    private static let waitingReason = "等 Cursor 刷新登录"
+    private static var waitingReason: String { L("等 Cursor 刷新登录") }
 
     /// GET https://cursor.com/api/usage-summary。
     /// 只有「已记住、且不是 Cursor 当前登录」才允许在 401 时用 refreshToken 换新令牌。
@@ -147,7 +147,7 @@ final class CursorUsageReader {
     /// GET https://cursor.com/api/usage-summary，Cookie: WorkosCursorSessionToken=<userId>::<accessToken>（URL 编码）
     private func requestSummary(_ account: CursorAccount) async -> SummaryHTTP {
         guard var request = Self.allowedRequest(URL(string: "https://cursor.com/api/usage-summary")!) else {
-            return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: "网络请求失败"), status: nil)
+            return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: L("网络请求失败")), status: nil)
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(Self.sessionCookie(account), forHTTPHeaderField: "Cookie")
@@ -156,25 +156,25 @@ final class CursorUsageReader {
         do {
             let (data, response) = try await UsageHTTP.session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: "网络请求失败"), status: nil)
+                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: L("网络请求失败")), status: nil)
             }
             if http.statusCode == 401 {
                 return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: nil), status: 401)
             }
             if http.statusCode == 403 {
-                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: "登录状态已失效，重新登录一次 Cursor 即可"), status: 403)
+                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: L("登录状态已失效，重新登录一次 Cursor 即可")), status: 403)
             }
             if http.statusCode == 429 {
-                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: "请求过于频繁（429），暂用上次额度"), status: 429)
+                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: L("请求过于频繁（429），暂用上次额度")), status: 429)
             }
             guard http.statusCode == 200,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
-                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: "额度接口返回异常（HTTP \(http.statusCode)）"), status: http.statusCode)
+                return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: L("额度接口返回异常（HTTP \(http.statusCode)）")), status: http.statusCode)
             }
             return SummaryHTTP(result: Self.mapUsageSummary(obj, account: account), status: 200)
         } catch {
-            return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: "网络请求失败"), status: nil)
+            return SummaryHTTP(result: CursorQuotaResult(quotas: [], plan: fallbackPlan(account), failureReason: L("网络请求失败")), status: nil)
         }
     }
 
@@ -204,7 +204,7 @@ final class CursorUsageReader {
     /// POST /api/dashboard/get-filtered-usage-events 的一页。调用方负责停页，这里不累积历史。
     func fetchEventsPage(account: CursorAccount, page: Int, pageSize: Int, startMS: Int64, endMS: Int64) async -> CursorEventsPageResult {
         guard var request = Self.allowedRequest(URL(string: "https://cursor.com/api/dashboard/get-filtered-usage-events")!) else {
-            return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: "网络请求失败")
+            return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: L("网络请求失败"))
         }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -219,42 +219,42 @@ final class CursorUsageReader {
             "endDate": String(endMS),
         ]
         guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
-            return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: "网络请求失败")
+            return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: L("网络请求失败"))
         }
         request.httpBody = payload
         do {
             let (data, response) = try await UsageHTTP.session.data(for: request)
             guard let http = response as? HTTPURLResponse, http.url?.host?.lowercased() == "cursor.com" else {
-                return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: "网络请求失败")
+                return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: L("网络请求失败"))
             }
             if http.statusCode == 401 {
                 return CursorEventsPageResult(status: 401, total: nil, events: [], failureReason: nil)
             }
             if http.statusCode == 403 {
-                return CursorEventsPageResult(status: 403, total: nil, events: [], failureReason: "登录状态已失效，重新登录一次 Cursor 即可")
+                return CursorEventsPageResult(status: 403, total: nil, events: [], failureReason: L("登录状态已失效，重新登录一次 Cursor 即可"))
             }
             if http.statusCode == 429 {
-                return CursorEventsPageResult(status: 429, total: nil, events: [], failureReason: "请求过于频繁（429），暂用上次用量")
+                return CursorEventsPageResult(status: 429, total: nil, events: [], failureReason: L("请求过于频繁（429），暂用上次用量"))
             }
             // 一页 1000 条大约几百 KB；再大就停，避免一次把整段历史读进内存
             guard http.statusCode == 200, data.count <= 8_000_000,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
-                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: "用量接口返回异常（HTTP \(http.statusCode)）")
+                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: L("用量接口返回异常（HTTP \(http.statusCode)）"))
             }
             // 这个窗口没有事件时，接口回的是空对象 {}，不是带空数组的正常页
             if obj.isEmpty {
                 return CursorEventsPageResult(status: 200, total: 0, events: [], failureReason: nil)
             }
             guard obj["usageEventsDisplay"] != nil || obj["totalUsageEventsCount"] != nil else {
-                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: "用量接口返回异常（HTTP \(http.statusCode)）")
+                return CursorEventsPageResult(status: http.statusCode, total: nil, events: [], failureReason: L("用量接口返回异常（HTTP \(http.statusCode)）"))
             }
             let total = Self.jsonInt(obj["totalUsageEventsCount"])
             let rows = obj["usageEventsDisplay"] as? [[String: Any]] ?? []
             let events = rows.compactMap(Self.parseEvent)
             return CursorEventsPageResult(status: 200, total: total, events: events, failureReason: nil)
         } catch {
-            return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: "网络请求失败")
+            return CursorEventsPageResult(status: nil, total: nil, events: [], failureReason: L("网络请求失败"))
         }
     }
 
@@ -341,7 +341,7 @@ final class CursorUsageReader {
 
     private func fallbackPlan(_ account: CursorAccount) -> String? {
         guard let m = account.membershipType, !m.isEmpty else { return nil }
-        return "Cursor " + m.capitalized
+        return titledPlanName(m, prefix: "Cursor")
     }
 
     private static func mapUsageSummary(_ obj: [String: Any], account: CursorAccount) -> CursorQuotaResult {
@@ -355,24 +355,46 @@ final class CursorUsageReader {
         // plan.used/limit 是套餐内含的 API 额度美元数，Ultra 用满 $400 后仍可继续用，不能当成“总计已用 100%”
         let used = (plan?["used"] as? NSNumber)?.doubleValue, limit = (plan?["limit"] as? NSNumber)?.doubleValue
         let onDemand = ((individual?["onDemand"] as? [String: Any])?["used"] as? NSNumber)?.doubleValue ?? 0
-        var detailParts: [String] = []
-        if let used, let limit, limit > 0 { detailParts.append(String(format: "内含额度 $%.0f / $%.0f", used / 100, limit / 100)) }
-        if onDemand > 0 { detailParts.append(String(format: "按量 $%.2f", onDemand / 100)) }
+        let hasIncluded = (limit ?? 0) > 0 && used != nil
         let totalFraction: Double? = ((plan?["totalPercentUsed"] as? NSNumber)?.doubleValue).map { $0 / 100 }
             ?? { if let used, let limit, limit > 0 { return used / limit } else { return nil } }()
         if let totalFraction {
-            windows.append(QuotaWindow(id: "total", title: "总计", usedFraction: totalFraction, resetsAt: cycleEnd,
-                                       detail: detailParts.isEmpty ? nil : detailParts.joined(separator: " · ")))
+            windows.append(QuotaWindow(id: "total", kind: .total, usedFraction: totalFraction, resetsAt: cycleEnd,
+                                       includedUsed: hasIncluded ? used.map { $0 / 100 } : nil,
+                                       includedLimit: hasIncluded ? limit.map { $0 / 100 } : nil,
+                                       onDemandUsed: onDemand > 0 ? onDemand / 100 : nil))
         }
         if let autoPct = (plan?["autoPercentUsed"] as? NSNumber)?.doubleValue {
-            windows.append(QuotaWindow(id: "cursor", title: "Cursor", usedFraction: autoPct / 100, resetsAt: cycleEnd, detail: nil))
+            windows.append(QuotaWindow(id: "cursor", kind: .cursorModels, usedFraction: autoPct / 100, resetsAt: cycleEnd))
         }
         if let apiPct = (plan?["apiPercentUsed"] as? NSNumber)?.doubleValue {
-            windows.append(QuotaWindow(id: "api", title: "第三方模型", usedFraction: apiPct / 100, resetsAt: cycleEnd, detail: nil))
+            windows.append(QuotaWindow(id: "api", kind: .apiModels, usedFraction: apiPct / 100, resetsAt: cycleEnd))
         }
 
         let membershipType = (obj["membershipType"] as? String) ?? account.membershipType
-        let planName = membershipType.map { "Cursor " + $0.capitalized }
-        return CursorQuotaResult(quotas: windows, plan: planName, failureReason: nil)
+        let planName = membershipType.flatMap { titledPlanName($0, prefix: "Cursor") }
+        // 一个窗口都认不出时不能当成「成功且额度为零」，否则上次的额度会被清掉，界面既没数也没报错。
+        let failure = windows.isEmpty ? L("Cursor 没返回可识别的额度，显示的是上次的数据") : nil
+        return CursorQuotaResult(quotas: windows, plan: planName, failureReason: failure)
     }
+
+    #if DEBUG
+    /// `--cursor-summary-test`：只解析一份本地 JSON，不联网、不读钥匙串。
+    static func debugPrintSummary(path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("cursor-summary-test: 读不到 JSON")
+            return
+        }
+        let account = CursorAccount(accessToken: "debug", refreshToken: nil, userID: "debug", email: nil, membershipType: nil)
+        let result = mapUsageSummary(obj, account: account)
+        let quotas = result.quotas.map { item in
+            "\(item.id)=\(String(format: "%.1f%%", item.usedFraction * 100))"
+        }.joined(separator: ", ")
+        print("cursor-summary-test windows=\(result.quotas.count) quotas=\(quotas.isEmpty ? "none" : quotas)")
+        print("plan: \(result.plan ?? "nil")")
+        print("failureReason: \(result.failureReason ?? "nil")")
+    }
+    #endif
 }

@@ -94,7 +94,7 @@ struct Eyebrow: View {
     }
 
     var body: some View {
-        Text(text)
+        Text(L10n.isEnglish ? text.uppercased() : text)
             .font(Theme.mono(size))
             .tracking(tracking)
             .foregroundStyle(Theme.tertiary)

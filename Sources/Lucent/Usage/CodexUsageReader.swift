@@ -44,6 +44,8 @@ struct RateLimitWindowCodable: Codable, Sendable {
     var usedPercent: Double
     var windowMinutes: Double?
     var resetsAt: Date?
+    /// 没有 resets_at 时，用这条事件的时间加 window_minutes 判断窗口是否已经走完。
+    var eventAt: Date?
 }
 
 struct CodexUsageCache: Codable, Sendable {
@@ -65,6 +67,10 @@ struct CodexUsageCache: Codable, Sendable {
     /// 最新一次 token_count 事件带的额度窗口（本机日志自带的，不联网、不查额度接口）
     var lastRateLimitPrimary: RateLimitWindowCodable?
     var lastRateLimitSecondary: RateLimitWindowCodable?
+    /// 已采纳额度的那条事件的时间。文件按路径排序，更早的事件不能覆盖。
+    var lastRateLimitEventAt: Date?
+    /// plan_type 原文。展示成「Codex Plus」发生在读出之后。
+    var lastPlanType: String?
     /// 已经从 state_5.sqlite 补过账、而且当时磁盘上没有 rollout 的 thread。记下加进去的那一份，文件后来又出现时要整笔扣回。
     var sqliteCredits: [String: CodexSqliteCredit] = [:]
     /// 文件已经不在、但 updated_at 超出历史窗口的 thread。没加过账，只是免得每轮再看一遍。
@@ -72,8 +78,8 @@ struct CodexUsageCache: Codable, Sendable {
     var sqliteSupplementedTokens: Int64 = 0
     var sqliteSupplementedThreads: Int = 0
     var version: Int = CodexUsageCache.currentVersion
-    /// 3：sqlite 只补磁盘上已经没有 rollout 的 thread（含 archived_sessions 同名和 .jsonl.zst）；文件再出现就扣回
-    static let currentVersion = 3
+    /// 4：额度要记下事件时间才能丢掉过期窗口；旧缓存没有这个字段，整份重读。
+    static let currentVersion = 4
 }
 
 struct CodexSqliteCredit: Codable, Sendable {
@@ -99,6 +105,7 @@ struct CodexLocalResult: Sendable {
     var dailyDetail: [UsageBucket]
     var pricing: [PricingEntry]
     var quotas: [QuotaWindow]
+    var plan: String? = nil
     var lastActivity: Date?
     var tokensPerMinute: Double
     var fallbackPricedModels: Set<String>
@@ -176,10 +183,16 @@ final class CodexUsageReader {
                     guard let obj = Self.decodeJSON(line),
                           let timestampStr = obj["timestamp"] as? String,
                           let timestamp = ISO8601.parse(timestampStr),
-                          let payload = obj["payload"] as? [String: Any],
-                          let info = payload["info"] as? [String: Any]
+                          let payload = obj["payload"] as? [String: Any]
                     else { return }
                     if timestamp < historyCutoff { return }
+
+                    // info 为空、或这条只是重复心跳时，额度仍然挂在同一条事件上，不能跟着增量判断一起丢掉。
+                    if let rateLimits = payload["rate_limits"] as? [String: Any] {
+                        Self.ingestRateLimits(rateLimits, eventTimestamp: timestamp, cache: &cache)
+                    }
+
+                    guard let info = payload["info"] as? [String: Any] else { return }
 
                     let sid = sessionId ?? "unknown"
                     var state = cache.sessionState[sid] ?? CodexSessionState()
@@ -188,15 +201,6 @@ final class CodexUsageReader {
                         return
                     }
                     cache.sessionState[sid] = state
-
-                    if let rateLimits = payload["rate_limits"] as? [String: Any] {
-                        if let p = rateLimits["primary"] as? [String: Any], let w = Self.parseRateLimitWindow(p, eventTimestamp: timestamp) {
-                            cache.lastRateLimitPrimary = w
-                        }
-                        if let s = rateLimits["secondary"] as? [String: Any], let w = Self.parseRateLimitWindow(s, eventTimestamp: timestamp) {
-                            cache.lastRateLimitSecondary = w
-                        }
-                    }
 
                     let infoModel = (info["model"] as? String) ?? (info["model_name"] as? String) ?? (payload["model"] as? String)
                     let model = currentModel ?? infoModel.map(Self.normalizeModel) ?? "unknown"
@@ -338,13 +342,14 @@ final class CodexUsageReader {
         for model in unsplitModels.subtracting(listed).sorted() {
             pricing.append(Self.pricingEntry(for: model, unsplit: true))
         }
-        let quotas = Self.buildQuotas(primary: cache.lastRateLimitPrimary, secondary: cache.lastRateLimitSecondary)
+        let quotas = Self.buildQuotas(primary: cache.lastRateLimitPrimary, secondary: cache.lastRateLimitSecondary, now: now)
+        let plan = cache.lastPlanType.flatMap { titledPlanName($0, prefix: "Codex") }
         let blocks = UsageBlocks.summarize(hours: cache.hours, now: now)
 
         var result = CodexLocalResult(status: .ok, today: today, daily: daily, models: models, history: history,
                                        hourly: hourly, recentRequests: requests, projects: projects,
                                        hourlyDetail: hourlyDetail, dailyDetail: dailyDetail, pricing: pricing, quotas: quotas,
-                                       lastActivity: lastActivity, tokensPerMinute: recent.tokensPerMinute(now: now),
+                                       plan: plan, lastActivity: lastActivity, tokensPerMinute: recent.tokensPerMinute(now: now),
                                        fallbackPricedModels: fallbackModels)
         result.hasBacklog = hitBudgetCap
         result.currentBlock = blocks.current
@@ -363,7 +368,7 @@ final class CodexUsageReader {
     static func pricingEntry(for model: String, unsplit: Bool = false) -> PricingEntry {
         let (rate, _, _) = CodexPricingTable.rateWithSource(for: model)
         var source = CodexPricingTable.source(for: model)
-        if unsplit { source += "；sqlite 补的历史只有总数，金额记 0" }
+        if unsplit { source += L("；sqlite 补的历史只有总数，金额记 0") }
         return PricingEntry(model: model, tool: .codex, input: rate.input * 1_000_000, output: rate.output * 1_000_000,
                              cacheRead: rate.cacheRead * 1_000_000, cacheWrite5m: 0, cacheWrite1h: 0, source: source)
     }
@@ -573,38 +578,104 @@ final class CodexUsageReader {
         return lower
     }
 
+    /// 主限额 id。上游没给 limit_id 时按这一档解析；codex_other 是另一档模型自己的限额。
+    private static let primaryLimitID = "codex"
+
+    /// 文件按路径排序，晚读到的旧事件不能覆盖。非主限额整份丢掉。
+    private static func ingestRateLimits(_ rateLimits: [String: Any], eventTimestamp: Date, cache: inout CodexUsageCache) {
+        guard isPrimaryLimit(rateLimits) else { return }
+        if let prior = cache.lastRateLimitEventAt, eventTimestamp < prior { return }
+        cache.lastRateLimitEventAt = eventTimestamp
+        if let primary = rateLimits["primary"] as? [String: Any],
+           let window = parseRateLimitWindow(primary, eventTimestamp: eventTimestamp) {
+            cache.lastRateLimitPrimary = window
+        }
+        if let secondary = rateLimits["secondary"] as? [String: Any],
+           let window = parseRateLimitWindow(secondary, eventTimestamp: eventTimestamp) {
+            cache.lastRateLimitSecondary = window
+        }
+        if let plan = rateLimits["plan_type"] as? String {
+            let trimmed = plan.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { cache.lastPlanType = trimmed }
+        }
+    }
+
+    private static func isPrimaryLimit(_ rateLimits: [String: Any]) -> Bool {
+        guard let raw = rateLimits["limit_id"], !(raw is NSNull) else { return true }
+        guard let id = raw as? String else { return false }
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        return trimmed.caseInsensitiveCompare(primaryLimitID) == .orderedSame
+    }
+
+    /// 官方 resets_at 是 Unix 秒，也可能是毫秒或纯数字字符串；旧日志还有 ISO 和 resets_in_seconds。
     private static func parseRateLimitWindow(_ dict: [String: Any], eventTimestamp: Date) -> RateLimitWindowCodable? {
         guard let usedPercent = (dict["used_percent"] as? NSNumber)?.doubleValue else { return nil }
         let windowMinutes = (dict["window_minutes"] as? NSNumber)?.doubleValue
-        var resetsAt: Date?
-        if let resetsAtStr = dict["resets_at"] as? String {
-            resetsAt = ISO8601.parse(resetsAtStr)
-        } else if let resetsIn = (dict["resets_in_seconds"] as? NSNumber)?.doubleValue {
-            resetsAt = eventTimestamp.addingTimeInterval(resetsIn)
+        let resetsAt = parseResetsAt(dict, eventTimestamp: eventTimestamp)
+        return RateLimitWindowCodable(usedPercent: usedPercent, windowMinutes: windowMinutes, resetsAt: resetsAt, eventAt: eventTimestamp)
+    }
+
+    private static func parseResetsAt(_ dict: [String: Any], eventTimestamp: Date) -> Date? {
+        if let raw = dict["resets_at"], !(raw is NSNull) {
+            if let number = raw as? NSNumber {
+                return dateFromEpoch(number.doubleValue)
+            }
+            if let text = raw as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let number = Double(trimmed) {
+                    return dateFromEpoch(number)
+                }
+                return ISO8601.parse(trimmed)
+            }
+            return nil
         }
-        return RateLimitWindowCodable(usedPercent: usedPercent, windowMinutes: windowMinutes, resetsAt: resetsAt)
+        if let resetsIn = (dict["resets_in_seconds"] as? NSNumber)?.doubleValue {
+            return eventTimestamp.addingTimeInterval(resetsIn)
+        }
+        return nil
+    }
+
+    /// 大于 1e12 的是毫秒。秒级时间戳现在大约 1e9，不会被误除。
+    private static func dateFromEpoch(_ raw: Double) -> Date? {
+        guard raw.isFinite, raw > 0 else { return nil }
+        let seconds = raw > 1e12 ? raw / 1000 : raw
+        return Date(timeIntervalSince1970: seconds)
     }
 
     /// 没联网、没查任何额度接口——这俩窗口完全是从本机日志最新一条 token_count 事件自己带的 rate_limits 读出来的。
     /// 日志里没有 token_count 事件时 quotas 就是空的；
-    /// 有的话就按给的窗口分钟数自己拼标题，拼不出来就按 primary/secondary 的常见含义给个默认标题。
-    private static func buildQuotas(primary: RateLimitWindowCodable?, secondary: RateLimitWindowCodable?) -> [QuotaWindow] {
+    /// 有的话按给的窗口分钟数定类型，没给分钟数就按 primary/secondary 的常见含义（5 小时 / 每周）。
+    private static func buildQuotas(primary: RateLimitWindowCodable?, secondary: RateLimitWindowCodable?, now: Date) -> [QuotaWindow] {
         var windows: [QuotaWindow] = []
         if let p = primary {
-            windows.append(QuotaWindow(id: "five_hour", title: windowTitle(p.windowMinutes) ?? "5 小时",
-                                        usedFraction: p.usedPercent / 100, resetsAt: p.resetsAt, detail: nil))
+            let settled = settledWindow(p, now: now)
+            windows.append(QuotaWindow(id: "five_hour", kind: windowKind(p.windowMinutes) ?? .fiveHour,
+                                        usedFraction: settled.usedFraction, resetsAt: settled.resetsAt))
         }
         if let s = secondary {
-            windows.append(QuotaWindow(id: "seven_day", title: windowTitle(s.windowMinutes) ?? "本周",
-                                        usedFraction: s.usedPercent / 100, resetsAt: s.resetsAt, detail: nil))
+            let settled = settledWindow(s, now: now)
+            windows.append(QuotaWindow(id: "seven_day", kind: windowKind(s.windowMinutes) ?? .weekly,
+                                        usedFraction: settled.usedFraction, resetsAt: settled.resetsAt))
         }
         return windows
     }
 
-    private static func windowTitle(_ minutes: Double?) -> String? {
+    /// 日志里的 used_percent 不会自己过期。到点后还拿旧百分比，界面就会停在已经重置的用量上。
+    private static func settledWindow(_ window: RateLimitWindowCodable, now: Date) -> (usedFraction: Double, resetsAt: Date?) {
+        let resetPassed = window.resetsAt.map { $0 <= now } ?? false
+        let spanPassed: Bool = {
+            guard window.resetsAt == nil, let start = window.eventAt, let minutes = window.windowMinutes, minutes > 0 else { return false }
+            return start.addingTimeInterval(minutes * 60) <= now
+        }()
+        if resetPassed || spanPassed { return (0, nil) }
+        return (window.usedPercent / 100, window.resetsAt)
+    }
+
+    private static func windowKind(_ minutes: Double?) -> QuotaWindow.Kind? {
         guard let minutes, minutes > 0 else { return nil }
-        if minutes < 24 * 60 { return "\(Int((minutes / 60).rounded())) 小时" }
-        return "\(Int((minutes / 1440).rounded())) 天"
+        if minutes < 24 * 60 { return .hours(Int((minutes / 60).rounded())) }
+        return .days(Int((minutes / 1440).rounded()))
     }
 
     private static func decodeJSON(_ line: String) -> [String: Any]? {

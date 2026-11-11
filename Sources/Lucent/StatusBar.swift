@@ -38,11 +38,11 @@ final class StatusBarRenderer {
             hot: hot
         )
 
-        let key = glyph.key
+        let key = glyph.key + (L10n.isEnglish ? "|en" : "|zh")
         guard key != lastKey, let button else { return }
         lastKey = key
         button.image = glyph.image()
-        button.setAccessibilityLabel("Lucent：CPU \(Fmt.percent(s.cpu.total))，温度 \(Fmt.temp(temp))，内存 \(Fmt.percent(s.mem.usedFraction))")
+        button.setAccessibilityLabel(L("Lucent：CPU \(Fmt.percent(s.cpu.total))，温度 \(Fmt.temp(temp))，内存 \(Fmt.percent(s.mem.usedFraction))"))
     }
 }
 

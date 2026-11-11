@@ -18,6 +18,9 @@ strip -x "$BUNDLE/Contents/MacOS/$APP"          # 去掉本地符号，减小体
 cp Resources/Info.plist "$BUNDLE/Contents/Info.plist"
 cp -R Resources/Fonts "$BUNDLE/Contents/Resources/Fonts"               # Doto / JetBrains Mono，启动时注册
 cp Resources/AppIcon.icns "$BUNDLE/Contents/Resources/AppIcon.icns"     # 程序图标（scripts/make-icon.sh 生成）
+# 界面文字：源码里是中文，英文表在 en.lproj。zh-Hans.lproj 是空目录，只为让系统知道应用有中文界面
+cp -R Resources/en.lproj "$BUNDLE/Contents/Resources/en.lproj"
+mkdir -p "$BUNDLE/Contents/Resources/zh-Hans.lproj"
 # 用本机 Apple Development 证书签名：签名身份固定，钥匙串里记住的账号更新后不再弹授权框。
 # 没有证书的机器退回 ad-hoc 签名（登录启动仍可用，但每次更新后读钥匙串会弹一次）。
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')"

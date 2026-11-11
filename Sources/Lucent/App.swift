@@ -22,6 +22,7 @@ enum LucentMain {
             RunLoop.main.run()
             return
         }
+        UsageDebugDump.applySnapshotHome()
         #endif
 
         let app = NSApplication.shared
@@ -46,8 +47,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Prefs.register()
+        L10n.reload()
         Theme.registerFonts()
         buildMainMenu()
+        observers.append(NotificationCenter.default.addObserver(forName: L10n.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.buildMainMenu()
+                UsageStore.shared.languageChanged()
+            }
+        })
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "LucentStatusItem"
@@ -218,16 +226,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.delegate = self
         menu.autoenablesItems = false
 
-        menu.addItem(item("打开主窗口", #selector(openDashboardAction), key: "o"))
-        menu.addItem(item("AI 用量…", #selector(usageAction)))
+        menu.addItem(item(L("打开主窗口"), #selector(openDashboardAction), key: "o"))
+        menu.addItem(item(L("AI 用量…"), #selector(usageAction)))
 
         let interval = Prefs.sampleInterval
         let rate = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        rate.attributedTitle = MenuText.withValue("刷新频率", "\(Int(interval)) 秒")
+        rate.attributedTitle = MenuText.withValue(L("刷新频率"), L("\(Int(interval)) 秒"))
         let rateMenu = NSMenu()
-        for (v, note) in [(1.0, "更跟手"), (2.0, ""), (5.0, "最省电")] {
+        for (v, note) in [(1.0, L("更跟手")), (2.0, ""), (5.0, L("最省电"))] {
             let i = item("", #selector(setInterval(_:)))
-            i.attributedTitle = MenuText.withValue("\(Int(v)) 秒", note, small: true)
+            i.attributedTitle = MenuText.withValue(L("\(Int(v)) 秒"), note, small: true)
             i.representedObject = v
             i.state = v == interval ? .on : .off
             rateMenu.addItem(i)
@@ -237,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         let style = Prefs.style
         let styleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        styleItem.attributedTitle = MenuText.withValue("顶部栏图标", style.title)
+        styleItem.attributedTitle = MenuText.withValue(L("顶部栏图标"), style.title)
         let styleMenu = NSMenu()
         for s in BarStyle.allCases {
             let i = item(s.title, #selector(setStyle(_:)))
@@ -250,12 +258,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(styleItem)
 
         menu.addItem(.separator())
-        let login = item("登录时启动", #selector(toggleLogin))
+        let login = item(L("登录时启动"), #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
-        menu.addItem(item("偏好设置…", #selector(preferencesAction), key: ","))
+        menu.addItem(item(L("偏好设置…"), #selector(preferencesAction), key: ","))
         menu.addItem(.separator())
-        menu.addItem(item("退出", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
+        menu.addItem(item(L("退出"), #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
 
         // 临时挂到状态项上再模拟点击，菜单出现在系统标准位置
         statusItem.menu = menu
@@ -365,20 +373,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 Lucent", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: L("关于 Lucent"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(item("偏好设置…", #selector(preferencesAction), key: ","))
+        appMenu.addItem(item(L("偏好设置…"), #selector(preferencesAction), key: ","))
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "隐藏 Lucent", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "退出 Lucent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L("隐藏 Lucent"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: L("退出 Lucent"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "窗口")
-        windowMenu.addItem(item("打开主窗口", #selector(openDashboardAction), key: "o"))
-        windowMenu.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        let windowMenu = NSMenu(title: L("窗口"))
+        windowMenu.addItem(item(L("打开主窗口"), #selector(openDashboardAction), key: "o"))
+        windowMenu.addItem(withTitle: L("关闭"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: L("最小化"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
 

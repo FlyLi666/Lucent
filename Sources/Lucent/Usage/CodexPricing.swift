@@ -94,7 +94,7 @@ enum CodexPricingTable {
 
     static func source(for model: String) -> String {
         let (_, isFallback, matched) = rateWithSource(for: model)
-        return isFallback ? "同系列回退（按 \(matched)）" : "LiteLLM"
+        return isFallback ? L("同系列回退（按 \(matched)）") : "LiteLLM"
     }
 }
 

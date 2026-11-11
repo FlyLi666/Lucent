@@ -12,14 +12,14 @@ enum DashSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .overview: return "概览"
-        case .thermal: return "温度"
-        case .cpu: return "处理器"
-        case .memory: return "内存"
-        case .network: return "网络"
-        case .ai: return "AI 用量"
-        case .info: return "本机信息"
-        case .settings: return "设置"
+        case .overview: return L("概览")
+        case .thermal: return L("温度")
+        case .cpu: return L("处理器")
+        case .memory: return L("内存")
+        case .network: return L("网络")
+        case .ai: return L("AI 用量")
+        case .info: return L("本机信息")
+        case .settings: return L("设置")
         }
     }
 
@@ -48,9 +48,9 @@ enum TimeRange: Int, CaseIterable, Identifiable {
     var seconds: TimeInterval { TimeInterval(rawValue) }
     var label: String {
         switch self {
-        case .minute: return "1 分钟"
-        case .tenMinutes: return "10 分钟"
-        case .hour: return "1 小时"
+        case .minute: return L("1 分钟")
+        case .tenMinutes: return L("10 分钟")
+        case .hour: return L("1 小时")
         }
     }
 }
@@ -92,8 +92,11 @@ struct DashboardView: View {
                     .tracking(-0.4)
                     .id(nav.section)
                     .transition(UIMotion.contentSwap)
-                Text(nav.section == .settings ? "改动立即生效" : "UPTIME \(Labels.uptime(monitor.machine)) · SAMPLE \(Int(Prefs.sampleInterval))S")
+                // 开机时长和采样间隔跟 AI 用量无关：那一页不显示，但占着位置，切分区时标题不跳
+                Text(nav.section == .settings ? L("改动立即生效") : L("已开机 \(Labels.uptime(monitor.machine)) · 每 \(Int(Prefs.sampleInterval)) 秒采样"))
                     .font(Theme.mono(10.5)).tracking(1).foregroundStyle(Theme.tertiary)
+                    .opacity(nav.section == .ai ? 0 : 1)
+                    .accessibilityHidden(nav.section == .ai)
             }
             Spacer()
             if nav.section == .ai {
@@ -132,20 +135,20 @@ struct DashboardView: View {
         case .cpu:
             VStack(spacing: 14) {
                 RatioRow(ratio: 1.37, spacing: 14) {
-                    HistoryPanel(title: "CPU · 历史", values: monitor.cpuHistory.values(last: r, maxPoints: 40), seed: 23,
-                                 caption: "\(range.label)峰值 \(Fmt.percent(monitor.cpuHistory.peak(last: r) ?? 0))")
+                    HistoryPanel(title: L("CPU · 历史"), values: monitor.cpuHistory.values(last: r, maxPoints: 40), seed: 23,
+                                 caption: L("\(range.label)峰值 \(Fmt.percent(monitor.cpuHistory.peak(last: r) ?? 0))"))
                     CPUPanel(monitor: monitor)
                 }
-                ProcessPanel(title: "CPU 占用最高", items: monitor.processes.topCPU) { String(format: "%.1f%%", $0.cpu) }
+                ProcessPanel(title: L("CPU 占用最高"), items: monitor.processes.topCPU) { String(format: "%.1f%%", $0.cpu) }
             }
         case .memory:
             VStack(spacing: 14) {
                 RatioRow(ratio: 1.37, spacing: 14) {
-                    HistoryPanel(title: "MEMORY · 历史", values: monitor.memHistory.values(last: r, maxPoints: 40), seed: 7,
-                                 caption: "\(range.label)峰值 \(Fmt.percent(monitor.memHistory.peak(last: r) ?? 0))")
+                    HistoryPanel(title: L("内存 · 历史"), values: monitor.memHistory.values(last: r, maxPoints: 40), seed: 7,
+                                 caption: L("\(range.label)峰值 \(Fmt.percent(monitor.memHistory.peak(last: r) ?? 0))"))
                     MemoryPanel(monitor: monitor)
                 }
-                ProcessPanel(title: "内存占用最高", items: monitor.processes.topMemory) { Fmt.size($0.memory) }
+                ProcessPanel(title: L("内存占用最高"), items: monitor.processes.topMemory) { Fmt.size($0.memory) }
             }
         case .network:
             HStack(alignment: .top, spacing: 14) {
@@ -180,7 +183,7 @@ private struct Sidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(Labels.shortName(m)).font(.system(size: 15, weight: .semibold))
-                Text("\(Labels.chip(m)) · \(Labels.memGB(m)) · MACOS \(ProcessInfo.processInfo.operatingSystemVersion.majorVersion)")
+                Text("\(Labels.chip(m)) · \(Labels.memGB(m)) · macOS \(ProcessInfo.processInfo.operatingSystemVersion.majorVersion)")
                     .font(Theme.mono(10.5)).tracking(0.6).foregroundStyle(Theme.tertiary)
             }
             .padding(EdgeInsets(top: 6, leading: 8, bottom: 14, trailing: 8))
@@ -220,7 +223,7 @@ private struct Sidebar: View {
 
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Eyebrow("SELF", size: 9.5, tracking: 1.2)
+                    Eyebrow(L("Lucent 占用"), size: 9.5, tracking: 1.2)
                     Text(selfText).font(.system(size: 12, weight: .semibold)).monospacedDigit()
                         .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 }
@@ -241,7 +244,7 @@ private struct Sidebar: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(",", modifiers: .command)
-                .help("设置（⌘,）")
+                .help(L("设置（⌘,）"))
             }
         }
         .padding(EdgeInsets(top: 14, leading: 10, bottom: 12, trailing: 10))
@@ -253,7 +256,7 @@ private struct Sidebar: View {
 
     private var selfText: String {
         guard let u = monitor.selfUsage else { return "—" }
-        return String(format: "CPU %.1f%%\n内存 ", u.cpu) + Fmt.size(u.memory)
+        return String(format: "CPU %.1f%%", u.cpu) + "\n" + L("内存 \(Fmt.size(u.memory))")
     }
 }
 
@@ -293,11 +296,13 @@ struct RatioRow: Layout {
     var ratio: CGFloat
     var spacing: CGFloat
     var height: CGFloat? = nil    // 固定行高；不给就取两侧内容的高
+    var fill = false              // 占满父级给的高度（下面的内容按自身高度收时，把余下的高度都拿走）
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let w = proposal.width ?? 900
         let (a, b) = widths(w)
         if let height { return CGSize(width: w, height: height) }
+        if fill, let h = proposal.height { return CGSize(width: w, height: h) }
         let h = max(subviews[0].sizeThatFits(.init(width: a, height: nil)).height,
                     subviews[1].sizeThatFits(.init(width: b, height: nil)).height)
         return CGSize(width: w, height: h)
@@ -352,14 +357,14 @@ private struct TempPanel: View {
         Panel {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Eyebrow("TEMPERATURE")
+                    Eyebrow(L("温度"))
                     DotNumber(value: Fmt.tempValue(s.thermal.cpuAvg), unit: Fmt.tempUnit,
                               size: 64, unitSize: 24, unitColor: Theme.heat)
                 }
                 Spacer()
                 Caption(lines: [
-                    "热状态 \(s.thermal.state.label)",
-                    "\(range.label)峰值 \(Fmt.temp(peak)) · " + (monitor.machine.isFanless ? "无风扇被动散热" : "风扇主动散热"),
+                    L("热状态 \(s.thermal.state.label)"),
+                    L("\(range.label)峰值 \(Fmt.temp(peak)) · ") + (monitor.machine.isFanless ? L("无风扇被动散热") : L("风扇主动散热")),
                 ])
             }
             GeometryReader { g in
@@ -398,11 +403,11 @@ private struct TempPanel: View {
             return v.isEmpty ? nil : v.reduce(0, +) / Double(v.count)
         }
         return [
-            ("性能核", avg(.cpuP) ?? t.cpuMax),
-            ("能效核", avg(.cpuE)),
+            (L("性能核"), avg(.cpuP) ?? t.cpuMax),
+            (L("能效核"), avg(.cpuE)),
             ("GPU", avg(.gpu) ?? t.gpu),
             ("SSD", avg(.storage)),
-            ("电池", avg(.battery) ?? t.battery),
+            (L("电池"), avg(.battery) ?? t.battery),
         ]
     }
 }
@@ -413,9 +418,9 @@ private struct SensorListPanel: View {
     var body: some View {
         let groups = Dictionary(grouping: monitor.snapshot.thermal.sensors, by: \.group)
         Panel {
-            Eyebrow("ALL SENSORS · \(monitor.snapshot.thermal.sensors.count)")
+            Eyebrow(L("全部传感器 · \(monitor.snapshot.thermal.sensors.count)"))
             if groups.isEmpty {
-                Text("没有读到温度传感器").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
+                Text(L("没有读到温度传感器")).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -451,13 +456,13 @@ private struct CPUPanel: View {
         Panel {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Eyebrow("CPU · \(s.cpu.cores.count) CORES")
+                    Eyebrow(L("CPU · \(s.cpu.cores.count) 核"))
                     DotNumber(value: "\(Int((s.cpu.total * 100).rounded()))", unit: "%", size: 64, unitSize: 24)
                 }
                 Spacer()
                 Caption(lines: [
-                    "用户 \(Fmt.percent(s.cpu.user)) · 系统 \(Fmt.percent(s.cpu.system))",
-                    "负载 " + s.load.map { String(format: "%.2f", $0) }.joined(separator: " · "),
+                    L("用户 \(Fmt.percent(s.cpu.user)) · 系统 \(Fmt.percent(s.cpu.system))"),
+                    L("负载 ") + s.load.map { String(format: "%.2f", $0) }.joined(separator: " · "),
                 ])
             }
             HStack(alignment: .bottom, spacing: 0) {
@@ -473,9 +478,9 @@ private struct CPUPanel: View {
             .padding(.top, 8)
             .frame(maxHeight: .infinity, alignment: .bottom)
             HStack {
-                if !p.isEmpty { Text("性能核 P1–P\(p.count) · \(Fmt.percent(split.p))") }
+                if !p.isEmpty { Text(L("性能核 P1–P\(p.count) · \(Fmt.percent(split.p))")) }
                 Spacer()
-                if !e.isEmpty { Text("能效核 E1–E\(e.count) · \(Fmt.percent(split.e))") }
+                if !e.isEmpty { Text(L("能效核 E1–E\(e.count) · \(Fmt.percent(split.e))")) }
             }
             .font(.system(size: 12)).foregroundStyle(Theme.secondary).monospacedDigit()
         }
@@ -520,7 +525,7 @@ private struct ProcessPanel: View {
         Panel {
             Eyebrow(title)
             if items.isEmpty {
-                Text("采集中…").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
+                Text(L("采集中…")).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
             }
             VStack(spacing: 6) {
                 ForEach(items.prefix(8)) { p in
@@ -545,19 +550,19 @@ private struct MemoryPanel: View {
         let mem = monitor.snapshot.mem
         Panel {
             HStack(alignment: .firstTextBaseline) {
-                Eyebrow("MEMORY")
+                Eyebrow(L("内存"))
                 Spacer()
-                Text("压力 \(Labels.pressure(mem.pressure)) · 交换 \(Fmt.gb(mem.swapUsed))")
+                Text(L("压力 \(Labels.pressure(mem.pressure)) · 交换 \(Fmt.gb(mem.swapUsed))"))
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
             }
             HStack(spacing: 14) {
                 MemoryDial(mem: mem, size: 132, radius: 44, thick: 14, valueSize: 30)
                 VStack(alignment: .leading, spacing: 8) {
-                    LegendRow(swatch: .solid(1, glow: true), name: "App", value: gb(mem.app), swatchWidth: 12)
-                    LegendRow(swatch: .solid(0.55, glow: false), name: "联动", value: gb(mem.wired), swatchWidth: 12)
-                    LegendRow(swatch: .solid(0.28, glow: false), name: "已压缩", value: gb(mem.compressed), swatchWidth: 12)
-                    LegendRow(swatch: .solid(0.2, glow: false), name: "缓存", value: gb(mem.cached), dimmed: true, swatchWidth: 12)
-                    LegendRow(swatch: .outline, name: "可用", value: gb(mem.free), dimmed: true, swatchWidth: 12)
+                    LegendRow(swatch: .solid(1, glow: true), name: L("应用"), value: gb(mem.app), swatchWidth: 12)
+                    LegendRow(swatch: .solid(0.55, glow: false), name: L("联动"), value: gb(mem.wired), swatchWidth: 12)
+                    LegendRow(swatch: .solid(0.28, glow: false), name: L("已压缩"), value: gb(mem.compressed), swatchWidth: 12)
+                    LegendRow(swatch: .solid(0.2, glow: false), name: L("缓存"), value: gb(mem.cached), dimmed: true, swatchWidth: 12)
+                    LegendRow(swatch: .outline, name: L("可用"), value: gb(mem.free), dimmed: true, swatchWidth: 12)
                 }
             }
             Spacer(minLength: 0)
@@ -590,14 +595,14 @@ private struct NetworkPanel: View {
         let mid = chartHeight * 56 / 96
         Panel {
             HStack(alignment: .firstTextBaseline) {
-                Eyebrow("NETWORK")
+                Eyebrow(L("网络"))
                 Spacer()
-                Text([net.interfaceKind, net.interfaceName].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "未连接")
+                Text([net.interfaceKind?.title, net.interfaceName].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? L("未连接"))
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
             }
             HStack(spacing: 22) {
-                bigRate("↓ 下载", d, dim: false)
-                bigRate("↑ 上传", u, dim: true)
+                bigRate(L("↓ 下载"), d, dim: false)
+                bigRate(L("↑ 上传"), u, dim: true)
             }
             ThreadChart(layers: [
                 ThreadLayer(data: Norm.padded(down), base: mid - 2, amp: mid - 10, spread: 7, seed: 37, energy: Theme.rateEnergy(net.down),
@@ -608,9 +613,9 @@ private struct NetworkPanel: View {
             .frame(height: chartHeight)
             Spacer(minLength: 0)
             VStack(spacing: 6) {
-                row("今日下载", Fmt.total(net.todayDown))
-                row("今日上传", Fmt.total(net.todayUp))
-                row("\(range.label)峰值", Fmt.rate(monitor.downHistory.peak(last: range.seconds) ?? 0))
+                row(L("今日下载"), Fmt.total(net.todayDown))
+                row(L("今日上传"), Fmt.total(net.todayUp))
+                row(L("\(range.label)峰值"), Fmt.rate(monitor.downHistory.peak(last: range.seconds) ?? 0))
             }
             .padding(.top, 10)
             .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
@@ -640,14 +645,14 @@ private struct NetworkTotalsPanel: View {
     var body: some View {
         let n = monitor.snapshot.net
         Panel {
-            Eyebrow("TOTALS")
+            Eyebrow(L("累计流量"))
             InfoGrid(rows: [
-                ("今日下载", Fmt.total(n.todayDown)),
-                ("今日上传", Fmt.total(n.todayUp)),
-                ("本次下载", Fmt.total(n.sessionDown)),
-                ("本次上传", Fmt.total(n.sessionUp)),
-                ("开机下载", Fmt.total(n.bootDown)),
-                ("开机上传", Fmt.total(n.bootUp)),
+                (L("今日下载"), Fmt.total(n.todayDown)),
+                (L("今日上传"), Fmt.total(n.todayUp)),
+                (L("本次下载"), Fmt.total(n.sessionDown)),
+                (L("本次上传"), Fmt.total(n.sessionUp)),
+                (L("开机下载"), Fmt.total(n.bootDown)),
+                (L("开机上传"), Fmt.total(n.bootUp)),
             ], keyWidth: 64)
         }
     }
@@ -662,10 +667,10 @@ private struct ThisMacPanel: View {
     var body: some View {
         Panel {
             HStack {
-                Eyebrow("THIS MAC")
+                Eyebrow(L("这台 Mac"))
                 Spacer()
-                Button(copied ? "已复制" : "复制") {
-                    let text = rows.map { "\($0.0)：\($0.1)" }.joined(separator: "\n")
+                Button(copied ? L("已复制") : L("复制")) {
+                    let text = rows.map { L("\($0.0)：\($0.1)") }.joined(separator: "\n")
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                     copied = true
@@ -684,22 +689,22 @@ private struct ThisMacPanel: View {
     private var rows: [(String, String)] {
         let m = monitor.machine
         let storage = monitor.storage.map {
-            "已用 \(Int((Double($0.used) / 1e9).rounded())) / \(Int((Double($0.total) / 1e9).rounded())) GB"
+            L("已用 \(Int((Double($0.used) / 1e9).rounded())) / \(Int((Double($0.total) / 1e9).rounded())) GB")
         } ?? "—"
         let battery: String = {
             guard let b = monitor.battery else { return "—" }
-            let parts = [b.healthPercent.map { "健康 \($0)%" }, b.cycleCount.map { "循环 \($0)" }].compactMap { $0 }
+            let parts = [b.healthPercent.map { L("健康 \($0)%") }, b.cycleCount.map { L("循环 \($0)") }].compactMap { $0 }
             return parts.isEmpty ? "—" : parts.joined(separator: " · ")
         }()
         return [
-            ("型号", m.productName),
-            ("芯片", "\(m.chip) · \(m.pCores)P + \(m.eCores)E" + (m.gpuCores.map { " · \($0) 核 GPU" } ?? "")),
-            ("内存", "\(Labels.memGB(m).dropLast(2)) GB 统一内存"),
-            ("系统", m.osVersion),
-            ("存储", storage),
-            ("电池", battery),
-            ("散热", m.isFanless ? "无风扇 · 被动散热" : "风扇 · 主动散热"),
-            ("运行", Fmt.duration(Date().timeIntervalSince(m.bootTime))),
+            (L("型号"), m.productName),
+            (L("芯片"), "\(m.chip) · \(m.pCores)P + \(m.eCores)E" + (m.gpuCores.map { L(" · \($0) 核 GPU") } ?? "")),
+            (L("内存"), L("\(Labels.memGB(m).dropLast(2)) GB 统一内存")),
+            (L("系统"), m.osVersion),
+            (L("存储"), storage),
+            (L("电池"), battery),
+            (L("散热"), m.isFanless ? L("无风扇 · 被动散热") : L("风扇 · 主动散热")),
+            (L("运行"), Fmt.duration(Date().timeIntervalSince(m.bootTime))),
         ]
     }
 }
@@ -747,9 +752,9 @@ struct UsageToolToggles: View {
                     HStack(spacing: 6) {
                         Text(tool.title)
                         if !installed {
-                            Text("本机没装").font(.system(size: 11)).foregroundStyle(Theme.tertiary)
+                            Text(L("本机没装")).font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                         } else if u.isEmptyLocal {
-                            Text("暂无记录").font(.system(size: 11)).foregroundStyle(Theme.tertiary)
+                            Text(L("暂无记录")).font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                         }
                     }
                 }
@@ -757,7 +762,7 @@ struct UsageToolToggles: View {
                 .controlSize(.small)
                 .font(.system(size: 12.5))
             }
-            Text("没装或还没有记录的工具即使打开也不显示，有了第一条记录会自动出现。关掉的工具后台不再读取它的记录。")
+            Text(L("没装或还没有记录的工具即使打开也不显示，有了第一条记录会自动出现。关掉的工具后台不再读取它的记录。"))
                 .font(.system(size: 11)).foregroundStyle(Theme.tertiary)
         }
     }

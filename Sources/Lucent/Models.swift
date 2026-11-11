@@ -14,9 +14,9 @@ enum MemoryPressure: Int, Sendable {
 
     var label: String {
         switch self {
-        case .normal: return "正常"
-        case .warning: return "紧张"
-        case .critical: return "严重"
+        case .normal: return L("正常")
+        case .warning: return L("紧张")
+        case .critical: return L("严重")
         }
     }
 }
@@ -36,6 +36,18 @@ struct MemoryStat: Sendable {
     var usedFraction: Double { total > 0 ? Double(used) / Double(total) : 0 }
 }
 
+/// 主网络接口的类型。采样结果里只存类型，名称在显示时按当前语言出
+enum InterfaceKind: Sendable, Equatable {
+    case wifi, ethernet, cellular
+    var title: String {
+        switch self {
+        case .wifi: return "Wi‑Fi"
+        case .ethernet: return L("以太网")
+        case .cellular: return L("蜂窝")
+        }
+    }
+}
+
 struct NetworkStat: Sendable {
     var down: Double = 0          // 字节/秒
     var up: Double = 0
@@ -45,7 +57,7 @@ struct NetworkStat: Sendable {
     var bootUp: UInt64 = 0
 
     var interfaceName: String?    // 当前主要活动接口 BSD 名，如 "en0"
-    var interfaceKind: String?    // "Wi‑Fi" / "以太网" / "蜂窝"，判断不了为 nil
+    var interfaceKind: InterfaceKind?   // 判断不了为 nil
     var todayDown: UInt64 = 0     // 本地自然日累计字节，跨午夜清零
     var todayUp: UInt64 = 0
 }
@@ -73,14 +85,14 @@ enum SensorGroup: Int, Sendable, CaseIterable, Comparable {
 
     var title: String {
         switch self {
-        case .cpuP: return "性能核"
-        case .cpuE: return "能效核"
+        case .cpuP: return L("性能核")
+        case .cpuE: return L("能效核")
         case .gpu: return "GPU"
         case .soc: return "SoC"
-        case .battery: return "电池"
-        case .storage: return "存储"
-        case .wireless: return "无线"
-        case .other: return "其他"
+        case .battery: return L("电池")
+        case .storage: return L("存储")
+        case .wireless: return L("无线")
+        case .other: return L("其他")
         }
     }
 
@@ -154,11 +166,11 @@ struct ProcessSnapshot: Sendable {
 extension ProcessInfo.ThermalState {
     var label: String {
         switch self {
-        case .nominal: return "正常"
-        case .fair: return "偏高"
-        case .serious: return "降频中"
-        case .critical: return "危急"
-        @unknown default: return "未知"
+        case .nominal: return L("正常")
+        case .fair: return L("偏高")
+        case .serious: return L("降频中")
+        case .critical: return L("危急")
+        @unknown default: return L("未知")
         }
     }
 }

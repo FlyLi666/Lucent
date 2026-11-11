@@ -57,7 +57,7 @@ struct AccountMenu: View {
             let picked = UsageAccounts.selected(store)
             Menu {
                 Button { selectedID = "" } label: {
-                    if picked == nil { Label("全部账号", systemImage: "checkmark") } else { Text("全部账号") }
+                    if picked == nil { Label(L("全部账号"), systemImage: "checkmark") } else { Text(L("全部账号")) }
                 }
                 ForEach(AITool.allCases) { tool in
                     let group = accounts.filter { $0.tool == tool }
@@ -75,7 +75,7 @@ struct AccountMenu: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "person.crop.circle").font(.system(size: 12))
-                    Text(picked.map(UsageAccounts.label) ?? "全部账号").lineLimit(1).truncationMode(.middle)
+                    Text(picked.map(UsageAccounts.label) ?? L("全部账号")).lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: 160)
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 }
@@ -90,7 +90,7 @@ struct AccountMenu: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("只看某一个账号的用量；Claude、Codex 的账号按配置目录区分")
+            .help(L("只看某一个账号的用量；Claude、Codex 的账号按配置目录区分"))
         }
     }
 }
@@ -107,12 +107,12 @@ struct AccountSuggestionBanner: View {
         if enabled.contains(.cursor), let login = store.pendingLogins.first, UsageAccounts.rememberedCursor(store) > 0 {
             HStack(spacing: 10) {
                 Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 14)).foregroundStyle(Theme.dim(0.9))
-                Text("Cursor 里登录了新账号 \(login.maskedEmail ?? "")，记住它以便换号后继续查额度？")
+                Text(L("Cursor 里登录了新账号 \(login.maskedEmail ?? "")，记住它以便换号后继续查额度？"))
                     .foregroundStyle(Theme.dim(0.9)).lineLimit(1)
                 Spacer(minLength: 8)
-                Button("不用") { store.dismissLogin(login) }
+                Button(L("不用")) { store.dismissLogin(login) }
                     .buttonStyle(PillButtonStyle(prominent: false))
-                Button("记住") { store.rememberLogin(login) }
+                Button(L("记住")) { store.rememberLogin(login) }
                     .buttonStyle(PillButtonStyle(prominent: true))
             }
             .font(.system(size: 12))
@@ -124,16 +124,16 @@ struct AccountSuggestionBanner: View {
             HStack(spacing: 10) {
                 Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 14)).foregroundStyle(Theme.dim(0.9))
                 HStack(spacing: 4) {
-                    Text("发现另一个 \(s.tool.title) 目录")
+                    Text(L("发现另一个 \(s.tool.title) 目录"))
                     Text(AccountPath.short(s.dir)).font(Theme.mono(11.5)).foregroundStyle(.white)
-                    Text("，加为一个账号单独统计？")
+                    Text(L("，加为一个账号单独统计？"))
                 }
                 .foregroundStyle(Theme.dim(0.9))
                 .lineLimit(1)
                 Spacer(minLength: 8)
-                Button("不用") { store.dismissSuggestion(s) }
+                Button(L("不用")) { store.dismissSuggestion(s) }
                     .buttonStyle(PillButtonStyle(prominent: false))
-                Button("加入") { store.acceptSuggestion(s) }
+                Button(L("加入")) { store.acceptSuggestion(s) }
                     .buttonStyle(PillButtonStyle(prominent: true))
             }
             .font(.system(size: 12))
@@ -191,20 +191,20 @@ struct UsageAccountSettings: View {
                 HStack(spacing: 8) {
                     Text(s.tool.shortTitle).frame(width: 56, alignment: .leading)
                     Text(AccountPath.short(s.dir)).font(Theme.mono(11)).foregroundStyle(Theme.secondary).lineLimit(1)
-                    Text("未加入").font(.system(size: 11)).foregroundStyle(Theme.tertiary)
+                    Text(L("未加入")).font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                     Spacer()
-                    Button("加入") { store.acceptSuggestion(s) }.buttonStyle(PillButtonStyle(prominent: false))
+                    Button(L("加入")) { store.acceptSuggestion(s) }.buttonStyle(PillButtonStyle(prominent: false))
                 }
                 .font(.system(size: 12.5))
             }
             ForEach(store.accounts.filter { $0.tool == .cursor }) { CursorSettingsRow(store: store, account: $0) }
             HStack(spacing: 8) {
-                Button("添加目录…", action: addDirectory).buttonStyle(PillButtonStyle(prominent: false))
+                Button(L("添加目录…"), action: addDirectory).buttonStyle(PillButtonStyle(prominent: false))
                 if let addError {
                     Text(addError).font(.system(size: 11)).foregroundStyle(Theme.heat)
                 }
             }
-            Text("Claude、Codex 一个目录算一个账号（CLAUDE_CONFIG_DIR / CODEX_HOME），账号名取该目录里的显示名，Lucent 不读它们的登录凭据。Cursor 要在换号前点「记住」，换号后才能继续查那个号的额度；令牌只存在本机钥匙串。")
+            Text(L("Claude、Codex 一个目录算一个账号（CLAUDE_CONFIG_DIR / CODEX_HOME），账号名取该目录里的显示名，Lucent 不读它们的登录凭据。Cursor 要在换号前点「记住」，换号后才能继续查那个号的额度；令牌只存在本机钥匙串。"))
                 .font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -217,11 +217,11 @@ struct UsageAccountSettings: View {
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
         panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-        panel.prompt = "加为账号"
-        panel.message = "选一个 Claude 配置目录（里面有 projects/）或 Codex 目录（里面有 sessions/）"
+        panel.prompt = L("加为账号")
+        panel.message = L("选一个 Claude 配置目录（里面有 projects/）或 Codex 目录（里面有 sessions/）")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard let tool = AccountPath.detectTool(url) else {
-            addError = "这个目录里没有 Claude（projects/）或 Codex（sessions/）的记录"
+            addError = L("这个目录里没有 Claude（projects/）或 Codex（sessions/）的记录")
             return
         }
         addError = nil
@@ -241,7 +241,7 @@ private struct AccountSettingsRow: View {
         HStack(spacing: 8) {
             Text(a.tool.shortTitle).frame(width: 56, alignment: .leading)
             if editing {
-                TextField("账号名", text: $draft)
+                TextField(L("账号名"), text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                     .frame(width: 140)
@@ -253,17 +253,17 @@ private struct AccountSettingsRow: View {
                 Text(a.displayName).lineLimit(1)
                     .opacity(a.hidden ? 0.45 : 1)
                     .onTapGesture(count: 2) { startEditing() }
-                    .help("双击改名")
+                    .help(L("双击改名"))
             }
             if let e = a.maskedEmail { Text(e).font(.system(size: 11)).foregroundStyle(Theme.tertiary).lineLimit(1) }
-            if a.isDefault { Text("默认").font(.system(size: 10.5)).foregroundStyle(Theme.tertiary) }
+            if a.isDefault { Text(L("默认")).font(.system(size: 10.5)).foregroundStyle(Theme.tertiary) }
             Spacer(minLength: 6)
             Menu {
-                Button("改名…", action: startEditing)
-                Button(a.hidden ? "重新显示" : "隐藏") { store.setHidden(a.id, !a.hidden) }
+                Button(L("改名…"), action: startEditing)
+                Button(a.hidden ? L("重新显示") : L("隐藏")) { store.setHidden(a.id, !a.hidden) }
                 if !a.isDefault {
                     Divider()
-                    Button("移除这个账号") { store.removeAccount(a.id) }
+                    Button(L("移除这个账号")) { store.removeAccount(a.id) }
                 }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
@@ -300,20 +300,20 @@ private struct CursorSettingsRow: View {
             Text("Cursor").frame(width: 56, alignment: .leading)
             Text(a.displayName).lineLimit(1).opacity(a.hidden ? 0.45 : 1)
             if let plan = a.plan { Text(plan).font(.system(size: 11)).foregroundStyle(Theme.tertiary).lineLimit(1) }
-            if a.isCurrentLogin { Text("当前登录").font(.system(size: 10.5)).foregroundStyle(Theme.tertiary) }
+            if a.isCurrentLogin { Text(L("当前登录")).font(.system(size: 10.5)).foregroundStyle(Theme.tertiary) }
             if case let .partial(r) = a.status {
                 Image(systemName: "exclamationmark.circle").font(.system(size: 10.5)).foregroundStyle(Theme.heat).help(r)
             }
             Spacer(minLength: 6)
             if let pending {
-                Button("记住") { store.rememberLogin(pending) }
+                Button(L("记住")) { store.rememberLogin(pending) }
                     .buttonStyle(PillButtonStyle(prominent: false))
-                    .help("把这个账号的登录存进本机钥匙串：以后在 Cursor 里换了号，Lucent 还能继续查它的额度")
+                    .help(L("把这个账号的登录存进本机钥匙串：以后在 Cursor 里换了号，Lucent 还能继续查它的额度"))
             } else {
                 Menu {
-                    Button(a.hidden ? "重新显示" : "隐藏") { store.setHidden(a.id, !a.hidden) }
+                    Button(a.hidden ? L("重新显示") : L("隐藏")) { store.setHidden(a.id, !a.hidden) }
                     Divider()
-                    Button("不再监看（从钥匙串删除）") { store.forgetAccount(a.id) }
+                    Button(L("不再监看（从钥匙串删除）")) { store.forgetAccount(a.id) }
                 } label: {
                     Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
                         .frame(width: 22, height: 22).contentShape(Rectangle())

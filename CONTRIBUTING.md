@@ -35,6 +35,7 @@ These keep Lucent light and trustworthy. PRs that break them will be asked to ch
 - Keep each PR focused on one change; describe what and why.
 - For UI changes, attach before/after screenshots (`--snapshots` makes this easy).
 - Make sure `swift build` produces no warnings.
-- Code comments may be in Chinese or English; user-facing strings are currently Chinese.
+- Code comments may be in Chinese or English.
+- User-facing strings are written in Chinese and wrapped in `L("…")`; the English text lives in `Resources/en.lproj/Lucent.strings`, keyed by the Chinese. Run `scripts/l10n-check.py` after touching UI text — it lists strings missing from the English table (`--bare` also lists Chinese literals you forgot to wrap). Don't store or compare the result of `L()`; it changes when the user switches language.
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE) and that you follow our [Code of Conduct](CODE_OF_CONDUCT.md).

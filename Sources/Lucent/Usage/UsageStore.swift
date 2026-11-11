@@ -64,6 +64,12 @@ final class UsageStore {
             }
             return u
         }
+        #if DEBUG
+        // --usage-dump 会带 -usage.hidden。循环一启动就扫 Cursor 的话会去读钥匙串，弹出系统授权框。
+        if CommandLine.arguments.contains("--usage-dump") {
+            enabledTools = UsageVisibility.enabled
+        }
+        #endif
         reloadAccounts()
         startLoop()
     }
@@ -180,6 +186,13 @@ final class UsageStore {
             await self.refreshLocalAll()
             await self.maybeRefreshQuotas(force: false, staleAfter: 120)
         }
+    }
+
+    /// 额度名、报错原因这些文字在读数据时就定了，换语言后要重读一遍才会跟着变。
+    /// 只在界面开着时读：没开着时不扫描是既定规矩，下次打开自然会刷新
+    func languageChanged() {
+        guard visible else { return }
+        refreshNow()
     }
 
     func refreshNow() {
@@ -385,6 +398,7 @@ final class UsageStore {
         u.dailyDetail = result.dailyDetail
         u.pricing = result.pricing
         u.quotas = result.quotas
+        u.plan = result.plan
         if !result.quotas.isEmpty { u.quotaUpdatedAt = result.lastActivity }
         u.lastActivity = result.lastActivity
         u.tokensPerMinute = result.tokensPerMinute
@@ -433,7 +447,7 @@ final class UsageStore {
         }
         cursorSession = await worker.readCursorAccount()
         if cursorSession == nil && vaultRecords.isEmpty {
-            localStatus[.cursor] = .failed("未检测到 Cursor 登录账号")
+            localStatus[.cursor] = .failed(L("未检测到 Cursor 登录账号"))
             pendingLogins = []
             replaceCursorAccounts([])
             recomputeStatus(.cursor)
@@ -441,7 +455,7 @@ final class UsageStore {
         }
         let i = idx(.cursor)
         if let membership = cursorSession?.membershipType, !membership.isEmpty, tools[i].plan == nil {
-            tools[i].plan = "Cursor " + membership.capitalized
+            tools[i].plan = titledPlanName(membership, prefix: "Cursor")
         }
         localStatus[.cursor] = .ok
         syncCursorAccounts()
@@ -472,7 +486,7 @@ final class UsageStore {
             syncCurrentTokenIntoVault(current)
             await refreshOneCursor(id: current.accountID, account: current, allowRefresh: false, force: force)
         } else {
-            applyCursorQuota(CursorQuotaResult(quotas: [], plan: nil, failureReason: "未找到 Cursor 登录信息"))
+            applyCursorQuota(CursorQuotaResult(quotas: [], plan: nil, failureReason: L("未找到 Cursor 登录信息")))
         }
 
         let others = vaultRecords.filter { $0.key != currentID }
@@ -649,7 +663,7 @@ final class UsageStore {
     private func makeCursorAccount(id: String, email: String?, membership: String?, isCurrent: Bool) -> AIAccount {
         let masked = email.flatMap { AccountDirectory.maskEmail($0) }
         let live = cursorLive[id]
-        let plan = live?.plan ?? membership.map { "Cursor " + $0.capitalized }
+        let plan = live?.plan ?? membership.flatMap { titledPlanName($0, prefix: "Cursor") }
         let display = AccountPrefs.alias(for: id) ?? masked ?? "Cursor"
         return AIAccount(id: id, tool: .cursor, dir: nil, displayName: display, maskedEmail: masked, plan: plan,
                          isDefault: false, hidden: AccountPrefs.isHidden(id), isCurrentLogin: isCurrent,

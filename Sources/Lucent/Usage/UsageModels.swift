@@ -38,10 +38,10 @@ enum AITool: String, CaseIterable, Identifiable, Sendable {
     /// 数据来源的一句话说明，显示在主窗口
     var sourceNote: String {
         switch self {
-        case .claude: return "命令行 + 桌面版 · 本机记录"
-        case .cursor: return "桌面版 + 命令行 · 账号用量"
-        case .opencode: return "本机记录"
-        case .codex: return "命令行 + 桌面版 · 本机记录"
+        case .claude: return L("命令行 + 桌面版 · 本机记录")
+        case .cursor: return L("桌面版 + 命令行 · 账号用量")
+        case .opencode: return L("本机记录")
+        case .codex: return L("命令行 + 桌面版 · 本机记录")
         }
     }
 }
@@ -207,11 +207,42 @@ struct ModelShare: Sendable, Identifiable, Equatable {
 
 /// 订阅额度的一个窗口，例如 Claude 的“5 小时”“本周”，Cursor 的“本期总计”
 struct QuotaWindow: Sendable, Identifiable, Equatable {
+    /// 这个窗口是什么。只存类型不存文字：额度会跨刷新留在内存里，文字得在显示时按当前语言生成
+    enum Kind: Sendable, Equatable {
+        case hours(Int), days(Int)   // 按时长滚动的窗口
+        case fiveHour, weekly        // 厂商没给时长时，按主 / 次窗口的常见含义
+        case total, cursorModels, apiModels
+    }
+
     var id: String           // 稳定 id，例如 "five_hour"
-    var title: String        // 中文标题，例如 "5 小时"
+    var kind: Kind
     var usedFraction: Double // 0...1（可能 >1 表示超额）
     var resetsAt: Date?
-    var detail: String?      // 额外一句，例如 "超额 5%"
+    /// 套餐内含额度已用 / 上限、按量已用（美元），只有 Cursor 的总计有
+    var includedUsed: Double?
+    var includedLimit: Double?
+    var onDemandUsed: Double?
+
+    var title: String {
+        switch kind {
+        case let .hours(n): return L("\(n) 小时")
+        case let .days(n): return L("\(n) 天")
+        case .fiveHour: return L("5 小时")
+        case .weekly: return L("本周")
+        case .total: return L("总计")
+        case .cursorModels: return "Cursor"
+        case .apiModels: return L("第三方模型")
+        }
+    }
+
+    var detail: String? {
+        var parts: [String] = []
+        if let used = includedUsed, let limit = includedLimit {
+            parts.append(L("内含额度 \(String(format: "$%.0f / $%.0f", used, limit))"))
+        }
+        if let onDemand = onDemandUsed, onDemand > 0 { parts.append(L("按量 \(String(format: "$%.2f", onDemand))")) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 }
 
 /// 金额是怎么来的，界面据此加标注
@@ -272,4 +303,18 @@ struct ToolUsage: Sendable, Identifiable, Equatable {
     var id: AITool { tool }
     var last30Tokens: TokenCounts { daily.reduce(TokenCounts()) { $0 + $1.tokens } }
     var last30Cost: Double { daily.reduce(0) { $0 + $1.cost } }
+}
+
+/// 套餐档常是 snake_case。下划线不算词边界，直接 capitalized 会得到 Pro_plus。
+func titledPlanName(_ raw: String, prefix: String) -> String? {
+    let words = raw.replacingOccurrences(of: "_", with: " ")
+        .split(whereSeparator: \.isWhitespace)
+        .map { part -> String in
+            let s = String(part)
+            guard let first = s.first else { return "" }
+            return String(first).uppercased() + s.dropFirst().lowercased()
+        }
+        .filter { !$0.isEmpty }
+    guard !words.isEmpty else { return nil }
+    return prefix + " " + words.joined(separator: " ")
 }

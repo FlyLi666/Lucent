@@ -38,11 +38,21 @@ enum DebugSnapshots {
                 jobs.append((place(DashboardView(monitor: monitor, nav: n), size: NSSize(width: 1200, height: 760)),
                              dir.appendingPathComponent("window-\(s.rawValue).png")))
             }
+            // `--switch-language <en|zh-Hans>`：窗口建好后再切语言，截到的图应该全是新语言（验证不重启就能切）。
+            // 退出前把写进偏好的语言清掉，不影响下一次调试运行
+            var switched = false
+            if let i = args.firstIndex(of: "--switch-language"), i + 1 < args.count, let lang = AppLanguage(rawValue: args[i + 1]) {
+                switched = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { L10n.setPreference(lang) }
+            }
             // 等 NSViewRepresentable 布局、图层建好再渲染
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (switched ? 4 : 2)) {
                 for (w, url) in jobs { render(w, to: url) }
                 lumaProbe(jobs[0].0)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 7) { NSApp.terminate(nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+                    if switched { L10n.setPreference(.system) }
+                    NSApp.terminate(nil)
+                }
             }
         }
     }

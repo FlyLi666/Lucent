@@ -19,6 +19,7 @@ A lightweight macOS menu bar monitor for temperature, CPU, memory and network �
 - **Main window** (⌥-click or ⌘O): overview, temperature sensors, per-core CPU, memory, network, AI usage, machine info, and a Settings page (⌘,).
 - **AI usage** for Claude Code, Codex, OpenCode and Cursor: cost, requests, tokens, cache hit rate, trends, request log, per-model / per-project / per-provider breakdowns, a yearly heatmap, and a local estimate of the current 5-hour window with burn rate.
 - **Multiple accounts**: Claude Code and Codex accounts are separated by config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); extra Cursor accounts can be remembered in the macOS Keychain. With a single account nothing about accounts is shown.
+- **English and Simplified Chinese**: follows the system language, or pick one in Settings.
 - **Personalization**: alert temperature, °C / °F, MB/s or Mbps, card modules, glyph style and text, motion on/off, native Liquid Glass or frosted material.
 
 ## Requirements

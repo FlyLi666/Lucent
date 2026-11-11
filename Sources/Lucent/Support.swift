@@ -51,17 +51,17 @@ enum BarStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .ring: return "刻度环"
-        case .pulse: return "能量线"
-        case .orbit: return "双轨"
+        case .ring: return L("刻度环")
+        case .pulse: return L("能量线")
+        case .orbit: return L("双轨")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .ring: return "亮起的刻度 = CPU，旁边是温度"
-        case .pulse: return "迷你脉冲线随 CPU 起伏"
-        case .orbit: return "外圈 CPU，内圈内存，不占字位"
+        case .ring: return L("亮起的刻度 = CPU，旁边是温度")
+        case .pulse: return L("迷你脉冲线随 CPU 起伏")
+        case .orbit: return L("外圈 CPU，内圈内存，不占字位")
         }
     }
 }
@@ -72,10 +72,10 @@ enum BarText: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .temp: return "温度"
+        case .temp: return L("温度")
         case .cpu: return "CPU"
-        case .mem: return "内存"
-        case .none: return "不显示"
+        case .mem: return L("内存")
+        case .none: return L("不显示")
         }
     }
 }
@@ -110,7 +110,7 @@ enum Fmt {
     }
 
     static func total(_ bytes: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
+        Int64(clamping: bytes).formatted(.byteCount(style: .file).locale(L10n.locale))
     }
 
     /// 视图里用："1.2 MB/s"
@@ -132,9 +132,9 @@ enum Fmt {
 
     static func duration(_ t: TimeInterval) -> String {
         let m = max(Int(t) / 60, 0), h = m / 60, d = h / 24
-        if d > 0 { return "\(d) 天 \(h % 24) 小时" }
-        if h > 0 { return "\(h) 小时 \(m % 60) 分" }
-        return "\(m) 分钟"
+        if d > 0 { return L("\(d) 天 \(h % 24) 小时") }
+        if h > 0 { return L("\(h) 小时 \(m % 60) 分") }
+        return L("\(m) 分钟")
     }
 }
 
