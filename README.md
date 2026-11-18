@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-A lightweight macOS menu bar monitor for temperature, CPU, memory and network — plus a usage dashboard for AI coding tools (Claude Code, Codex, OpenCode, Cursor). Native Swift, Liquid Glass UI, no third-party dependencies.
+A lightweight macOS menu bar monitor for temperature, CPU, memory and network — plus a usage dashboard for AI coding tools (Claude Code, Codex, OpenCode, Cursor, Antigravity, Grok Build). Native Swift, Liquid Glass UI, no third-party dependencies.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -17,7 +17,7 @@ A lightweight macOS menu bar monitor for temperature, CPU, memory and network �
 - **Menu bar glyph** in three styles (tick ring / pulse line / dual orbit). Monochrome until the CPU passes your alert temperature. The text next to it can show temperature, CPU, memory, or nothing.
 - **Card** (left click): temperature, CPU, memory and network with live "silk thread" charts, plus the top processes or AI usage. Each module can be hidden in Settings.
 - **Main window** (⌥-click or ⌘O): overview, temperature sensors, per-core CPU, memory, network, AI usage, machine info, and a Settings page (⌘,).
-- **AI usage** for Claude Code, Codex, OpenCode and Cursor: cost, requests, tokens, cache hit rate, trends, request log, per-model / per-project / per-provider breakdowns, a yearly heatmap, and a local estimate of the current 5-hour window with burn rate.
+- **AI usage** for Claude Code, Codex, OpenCode, Cursor, Antigravity and Grok Build: cost, requests, tokens, cache hit rate, trends, request log, per-model / per-project / per-provider breakdowns, a yearly heatmap, and a local estimate of the current 5-hour window with burn rate. Subscription quotas for Codex, Cursor and Antigravity.
 - **Multiple accounts**: Claude Code and Codex accounts are separated by config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); extra Cursor accounts can be remembered in the macOS Keychain. With a single account nothing about accounts is shown.
 - **English and Simplified Chinese**: follows the system language, or pick one in Settings.
 - **Personalization**: alert temperature, °C / °F, MB/s or Mbps, card modules, glyph style and text, motion on/off, native Liquid Glass or frosted material.
@@ -53,8 +53,10 @@ The script signs the app with the first "Apple Development" certificate it finds
 | Codex (CLI + desktop) | Local `~/.codex/sessions` (or `$CODEX_HOME`) and `state_5.sqlite` for sessions whose logs were deleted | Costs are API-equivalent. Totals recovered from the database have no input/output split and no cost. |
 | OpenCode | Local `~/.local/share/opencode/opencode.db`, read-only | Tokens and costs as recorded by OpenCode. |
 | Cursor | The signed-in token from Cursor's local database → `cursor.com` usage APIs | The current login's token is kept in memory only. Remembered extra accounts are stored in the macOS Keychain. Requests go only to `cursor.com` (and `api2.cursor.sh` to refresh an expired token of a remembered, not-currently-signed-in account). No HTTP cache or cookies are written. |
+| Antigravity (CLI + desktop) | Local `~/.gemini/antigravity-cli` and `~/.gemini/antigravity`: conversation transcripts, plus each conversation's local database for model names and real generation time. Quota comes from running `agy -p /usage` | Costs are API-equivalent Gemini prices (Gemini 4 Carbon / Argon prices change on 2026-12-01; each request is priced by its own date). Speed uses real generation time only. Lucent reads no Antigravity credentials; quota needs the `agy` CLI on your `PATH`. |
+| Grok Build | Local `~/.grok/sessions` and `~/.grok/archived_sessions` (`updates.jsonl` per session) | Uses the cost Grok Build records for each turn when present, otherwise xAI API prices. Speed comes from the recorded API time. No quota (Grok Build doesn't expose one). Credential files are never read. |
 
-Daily aggregates are cached in `~/Library/Caches/local.lucent.monitor/` (numbers, model names and the last path component of project directories — no conversation content, no credentials), so the heatmap keeps growing beyond the tools' own log retention.
+Hourly aggregates (in UTC, so changing time zones loses nothing) are cached in `~/Library/Caches/local.lucent.monitor/` (numbers, model names and the last path component of project directories — no conversation content, no credentials), so the heatmap keeps growing beyond the tools' own log retention.
 
 ## Why it stays light
 

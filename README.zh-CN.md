@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文**
 
-轻量的 macOS 顶部栏监视器：温度、CPU、内存、网速，外加 AI 编程工具（Claude Code、Codex、OpenCode、Cursor）的用量看板。原生 Swift，Liquid Glass 界面，没有第三方依赖。
+轻量的 macOS 顶部栏监视器：温度、CPU、内存、网速，外加 AI 编程工具（Claude Code、Codex、OpenCode、Cursor、Antigravity、Grok Build）的用量看板。原生 Swift，Liquid Glass 界面，没有第三方依赖。
 
 ![概览](docs/screenshots/overview-zh.png)
 
@@ -17,7 +17,7 @@
 - **顶部栏图标**三种样式：刻度环、能量线、双轨。平时是单色，CPU 温度超过你设的警戒值才变色。图标旁边可以显示温度、CPU、内存，或者什么都不显示。
 - **卡片**（左键点图标）：温度、CPU、内存、网络四块，带实时丝线曲线；底部显示占用最高的进程或 AI 用量。每个模块都能在设置里关掉。
 - **主窗口**（⌥ 点图标或 ⌘O）：概览、温度传感器、每个 CPU 核心、内存、网络、AI 用量、本机信息，左下角齿轮（⌘,）进设置。
-- **AI 用量**：成本、请求数、token、缓存命中率、趋势、请求日志，按模型、项目、供应商分别统计，一年的日历热力图，还有本地估算的 5 小时窗口和燃烧速率。
+- **AI 用量**：成本、请求数、token、缓存命中率、趋势、请求日志，按模型、项目、供应商分别统计，一年的日历热力图，还有本地估算的 5 小时窗口和燃烧速率；Codex、Cursor、Antigravity 显示订阅额度。
 - **多账号**：Claude Code 和 Codex 按配置目录区分账号（`CLAUDE_CONFIG_DIR` / `CODEX_HOME`）；Cursor 的其他账号可以「记住」到 macOS 钥匙串。只有一个账号时，界面不出现任何账号相关的东西。
 - **中英文界面**：跟随系统语言，也可以在设置里指定。
 - **个性化**：警戒温度、°C / °F、MB/s 或 Mbps、卡片显示哪些模块、图标样式和旁边的文字、动效开关、原生液态玻璃或磨砂材质。
@@ -53,8 +53,10 @@ cd Lucent
 | Codex（命令行 + 桌面版） | 本机 `~/.codex/sessions`（或 `$CODEX_HOME`）；日志已被删除的会话从 `state_5.sqlite` 补总数 | 金额按 API 等价价格折算。从数据库补回来的只有总数，分不出输入输出，也不算金额。 |
 | OpenCode | 本机 `~/.local/share/opencode/opencode.db`，只读 | token 和金额都用 OpenCode 自己的记录。 |
 | Cursor | Cursor 本机数据库里当前登录的令牌 → `cursor.com` 用量接口 | 当前登录的令牌只放在内存里；你「记住」的其他账号存在 macOS 钥匙串。请求只发往 `cursor.com`；只有「记住了、但当前没登录」的账号令牌过期时，才会连 `api2.cursor.sh` 刷新。不写任何 HTTP 缓存和 Cookie。 |
+| Antigravity（命令行 + 桌面版） | 本机 `~/.gemini/antigravity-cli` 和 `~/.gemini/antigravity`：对话记录，以及每个对话自己的本地数据库（取模型名和真实生成耗时）。额度靠运行 `agy -p /usage` 读取 | 金额按 Gemini API 等价价格折算（Gemini 4 Carbon / Argon 在 2026-12-01 调价，每条请求按自己的日期选价）。速度只用真实耗时。Lucent 不读 Antigravity 登录凭据；要看额度，`PATH` 里需要有 `agy` 命令行。 |
+| Grok Build | 本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions`（每个会话的 `updates.jsonl`） | 金额优先用 Grok Build 每轮自己记下的花费，没有时按 xAI API 价格折算。速度用记录的 API 耗时。没有额度（Grok Build 不提供）。从不读凭据文件。 |
 
-每天的汇总存在 `~/Library/Caches/local.lucent.monitor/`，只有数字、模型名和项目目录的最后一级名字，没有对话内容和凭据。所以即使工具自己的日志过期删掉了，热力图也会一直累积。
+按小时的汇总（用 UTC 存，换时区不会丢数）存在 `~/Library/Caches/local.lucent.monitor/`，只有数字、模型名和项目目录的最后一级名字，没有对话内容和凭据。所以即使工具自己的日志过期删掉了，热力图也会一直累积。
 
 ## 为什么轻
 
