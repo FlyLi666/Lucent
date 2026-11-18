@@ -57,6 +57,33 @@ enum DebugSnapshots {
         }
     }
 
+    /// README 真窗口截图用的背景：铺满主屏、排在普通窗口下面的一张深色渐变，
+    /// 让透明玻璃里透出的是这张可复现的底图，而不是桌面上别的窗口内容。
+    private static var backdrop: NSWindow?
+    static func showBackdrop() {
+        guard let screen = NSScreen.main else { return }
+        let win = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        win.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
+        win.isReleasedWhenClosed = false
+        win.ignoresMouseEvents = true
+        win.contentView = NSHostingView(rootView: BackdropArt())
+        win.orderFrontRegardless()
+        backdrop = win
+    }
+
+    private struct BackdropArt: View {
+        var body: some View {
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.20), Color(red: 0.05, green: 0.06, blue: 0.10)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                Circle().fill(Color(red: 0.32, green: 0.36, blue: 0.62)).frame(width: 900).blur(radius: 220).offset(x: -420, y: -260)
+                Circle().fill(Color(red: 0.62, green: 0.38, blue: 0.30)).frame(width: 760).blur(radius: 240).offset(x: 520, y: 300)
+                Circle().fill(Color(red: 0.22, green: 0.46, blue: 0.52)).frame(width: 620).blur(radius: 200).offset(x: 260, y: -360)
+            }
+            .ignoresSafeArea()
+        }
+    }
+
     /// 放进一个屏幕外的真实窗口，让 Core Animation 图层都建出来
     private static func place<V: View>(_ view: V, size: NSSize?) -> NSWindow {
         let host = NSHostingView(rootView: view.background(Color.black))

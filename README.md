@@ -12,6 +12,16 @@ A lightweight macOS menu bar monitor for temperature, CPU, memory and network â€
   <img src="docs/screenshots/ai-usage.png" alt="AI usage" width="70%">
 </p>
 
+Over your desktop, the Liquid Glass panels let the wallpaper show through:
+
+![Overview, translucent](docs/screenshots/glass-overview.png)
+
+<p>
+  <img src="docs/screenshots/glass-card.png" alt="Card, translucent" width="27%">
+  &nbsp;
+  <img src="docs/screenshots/glass-ai-usage.png" alt="AI usage, translucent" width="70%">
+</p>
+
 ## Features
 
 - **Menu bar glyph** in three styles (tick ring / pulse line / dual orbit). Monochrome until the CPU passes your alert temperature. The text next to it can show temperature, CPU, memory, or nothing.

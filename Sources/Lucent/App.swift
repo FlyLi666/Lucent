@@ -89,6 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let i = args.firstIndex(of: "--open-dashboard-after"), i + 1 < args.count, let delay = Double(args[i + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.showDashboard() }
         }
+        // README 真窗口截图（`--live --home <假家目录>`）：`--dash-section ai` 指定主窗口打开哪一页，
+        // `--open-card-after N` N 秒后弹出卡片，`--backdrop` 在窗口后面垫一张渐变底，透明玻璃里只透出这张底图
+        if let i = args.firstIndex(of: "--dash-section"), i + 1 < args.count, let s = DashSection(rawValue: args[i + 1]) {
+            nav.section = s
+        }
+        if let i = args.firstIndex(of: "--open-card-after"), i + 1 < args.count, let delay = Double(args[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, let b = self.statusItem.button else { return }
+                self.toggleCard(from: b)
+            }
+        }
+        if args.contains("--backdrop") { DebugSnapshots.showBackdrop() }
         #endif
 
         // 屏幕休眠时完全停止采样

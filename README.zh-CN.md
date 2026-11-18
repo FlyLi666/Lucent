@@ -12,6 +12,16 @@
   <img src="docs/screenshots/ai-usage-zh.png" alt="AI 用量" width="70%">
 </p>
 
+放在桌面上时，液态玻璃面板会透出壁纸：
+
+![概览（透明）](docs/screenshots/glass-overview-zh.png)
+
+<p>
+  <img src="docs/screenshots/glass-card-zh.png" alt="卡片（透明）" width="27%">
+  &nbsp;
+  <img src="docs/screenshots/glass-ai-usage-zh.png" alt="AI 用量（透明）" width="70%">
+</p>
+
 ## 功能
 
 - **顶部栏图标**三种样式：刻度环、能量线、双轨。平时是单色，CPU 温度超过你设的警戒值才变色。图标旁边可以显示温度、CPU、内存，或者什么都不显示。

@@ -8,11 +8,11 @@ import Foundation
 
 @MainActor
 enum UsageDebugDump {
-    /// 截图模式（`--snapshots <目录> --home <目录>`）用假家目录出图：家目录、账号偏好、缓存目录一起换掉。
+    /// 截图模式（`--snapshots <目录> --home <目录>`，或真窗口截图 `--live --home <目录>`）用假家目录出图：家目录、账号偏好、缓存目录一起换掉。
     /// 缓存目录必须跟着换，否则假数据会写进真实缓存。
     static func applySnapshotHome() {
         let args = CommandLine.arguments
-        guard args.contains("--snapshots"), let i = args.firstIndex(of: "--home"), args.indices.contains(i + 1) else { return }
+        guard args.contains("--snapshots") || args.contains("--live"), let i = args.firstIndex(of: "--home"), args.indices.contains(i + 1) else { return }
         UsageHome.debugOverride = URL(fileURLWithPath: args[i + 1]).standardizedFileURL
         let cache = FileManager.default.temporaryDirectory.appendingPathComponent("lucent-snapshot-home-cache")
         try? FileManager.default.removeItem(at: cache)
