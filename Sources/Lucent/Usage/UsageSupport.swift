@@ -275,22 +275,339 @@ func localHourKey(_ date: Date, calendar: Calendar = .current) -> String {
     return String(format: "%04d-%02d-%02dT%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0, c.hour ?? 0)
 }
 
-private let dayKeyFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.dateFormat = "yyyy-MM-dd"
-    f.timeZone = .current
-    return f
+private let utcCalendar: Calendar = {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    return cal
 }()
 
-private let hourKeyFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.dateFormat = "yyyy-MM-dd'T'HH"
-    f.timeZone = .current
-    return f
-}()
+/// 落盘缓存统一用 UTC 整点键（yyyy-MM-dd'T'HH），写入不绑定本机时区；
+/// 切换系统时区或跨夏令时后无需重扫，读出时按当前 Calendar.current 投射回本地日与本地整点。
+func utcHourKey(_ date: Date) -> String {
+    let c = utcCalendar.dateComponents([.year, .month, .day, .hour], from: date)
+    return String(format: "%04d-%02d-%02dT%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0, c.hour ?? 0)
+}
 
-func date(forDayKey key: String) -> Date? { dayKeyFormatter.date(from: key) }
-func date(forHourKey key: String) -> Date? { hourKeyFormatter.date(from: key) }
+func date(forUTCHourKey key: String) -> Date? {
+    let utf8 = Array(key.utf8)
+    guard utf8.count == 13,
+          utf8[4] == 0x2D, utf8[7] == 0x2D, utf8[10] == 0x54,
+          let year = parseKeyDigits(utf8, 0, 4),
+          let month = parseKeyDigits(utf8, 5, 2), (1...12).contains(month),
+          let day = parseKeyDigits(utf8, 8, 2), (1...31).contains(day),
+          let hour = parseKeyDigits(utf8, 11, 2), (0...23).contains(hour)
+    else { return nil }
+    return utcCalendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))
+}
+
+/// 每次按当前 Calendar.current 解析，避免静态 DateFormatter 把启动时的旧时区焊死在内存里
+func date(forDayKey key: String, calendar: Calendar = .current) -> Date? {
+    let utf8 = Array(key.utf8)
+    guard utf8.count == 10,
+          utf8[4] == 0x2D, utf8[7] == 0x2D,
+          let year = parseKeyDigits(utf8, 0, 4),
+          let month = parseKeyDigits(utf8, 5, 2), (1...12).contains(month),
+          let day = parseKeyDigits(utf8, 8, 2), (1...31).contains(day)
+    else { return nil }
+    return calendar.date(from: DateComponents(year: year, month: month, day: day))
+}
+
+func date(forHourKey key: String, calendar: Calendar = .current) -> Date? {
+    let utf8 = Array(key.utf8)
+    guard utf8.count == 13,
+          utf8[4] == 0x2D, utf8[7] == 0x2D, utf8[10] == 0x54,
+          let year = parseKeyDigits(utf8, 0, 4),
+          let month = parseKeyDigits(utf8, 5, 2), (1...12).contains(month),
+          let day = parseKeyDigits(utf8, 8, 2), (1...31).contains(day),
+          let hour = parseKeyDigits(utf8, 11, 2), (0...23).contains(hour)
+    else { return nil }
+    return calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))
+}
+
+@inline(__always)
+private func parseKeyDigits(_ bytes: [UInt8], _ start: Int, _ len: Int) -> Int? {
+    var acc = 0
+    for i in start..<(start + len) {
+        let b = bytes[i]
+        guard b >= 0x30 && b <= 0x39 else { return nil }
+        acc = acc * 10 + Int(b - 0x30)
+    }
+    return acc
+}
+
+/// 只删严格早于保留下限的桶；绝不删“未来键”，避免切时区或时钟回拨把已扫过的数据抹掉后游标不回扫。
+func pruneUTCHourBuckets<V>(_ map: inout [String: V], olderThan cutoff: Date) {
+    for key in Array(map.keys) {
+        if let bucketDate = date(forUTCHourKey: key), bucketDate < cutoff {
+            map.removeValue(forKey: key)
+        }
+    }
+}
+
+/// 由 UTC 小时桶按当前本机时区即时折算出日/小时/模型/项目/明细视图，四个读取器共用同一套口径
+enum UTCHourRollup {
+    struct ExtraDayEntry {
+        var when: Date
+        var provider: String
+        var model: String
+        var tokens: TokenCountsCodable
+        var project: String?
+    }
+
+    struct Snapshot {
+        var today: DailyUsage
+        var daily: [DailyUsage]
+        var models: [ModelShare]
+        var history: [DailyUsage]
+        var hourly: [HourlyUsage]
+        var projects: [ProjectShare]
+        var hourlyDetail: [UsageBucket]
+        var dailyDetail: [UsageBucket]
+    }
+
+    static func addProject(_ store: inout [String: [String: ProjectBucket]], utcHour: String, project: String,
+                           delta: TokenCountsCodable, cost: Double, timestamp: Date) {
+        var projects = store[utcHour] ?? [:]
+        var pb = projects[project] ?? ProjectBucket()
+        pb.tokens = pb.tokens + delta
+        pb.cost += cost
+        pb.requests += 1
+        if pb.lastActive == nil || timestamp > pb.lastActive! { pb.lastActive = timestamp }
+        projects[project] = pb
+        store[utcHour] = projects
+    }
+
+    static func subtractProject(_ store: inout [String: [String: ProjectBucket]], utcHour: String, project: String,
+                                delta: TokenCountsCodable, cost: Double) {
+        guard var projects = store[utcHour], var pb = projects[project] else { return }
+        pb.tokens = pb.tokens - delta
+        pb.cost -= cost
+        pb.requests -= 1
+        if pb.requests <= 0 && pb.tokens.total == 0 {
+            projects.removeValue(forKey: project)
+        } else {
+            projects[project] = pb
+        }
+        if projects.isEmpty {
+            store.removeValue(forKey: utcHour)
+        } else {
+            store[utcHour] = projects
+        }
+    }
+
+    static func build(
+        detailHours: [String: [String: [String: DetailBucket]]],
+        projectHours: [String: [String: ProjectBucket]] = [:],
+        extraDayEntries: [ExtraDayEntry] = [],
+        tool: AITool,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> Snapshot {
+        let keys365 = last365DayKeys(now: now, calendar: calendar)
+        let keys30 = Array(keys365.suffix(30))
+        let keep365 = Set(keys365)
+        let keep30 = Set(keys30)
+
+        var daysByKey: [String: DayBucket] = [:]
+        var dailyDetailMap: [String: [String: [String: DetailBucket]]] = [:]
+        var hourlyByStart: [Date: HourBucket] = [:]
+        var hourlyDetailMap: [Date: [String: [String: DetailBucket]]] = [:]
+
+        for (utcKey, byProvider) in detailHours {
+            guard let utcDate = date(forUTCHourKey: utcKey) else { continue }
+            let dayKey = localDayKey(utcDate, calendar: calendar)
+            guard keep365.contains(dayKey) else { continue }
+            let in30 = keep30.contains(dayKey)
+            let localHour = calendar.dateInterval(of: .hour, for: utcDate)?.start ?? utcDate
+
+            for (provider, byModel) in byProvider {
+                for (model, cell) in byModel where cell.requests > 0 || cell.tokens.total > 0 {
+                    var day = daysByKey[dayKey] ?? DayBucket()
+                    day.tokensByModel[model] = (day.tokensByModel[model] ?? TokenCountsCodable()) + cell.tokens
+                    day.costByModel[model, default: 0] += cell.cost
+                    day.requestsByModel[model, default: 0] += cell.requests
+                    day.requests += cell.requests
+                    day.cacheSavings += cell.cacheSavings
+                    day.cacheWrite1h += cell.cacheWrite1h
+                    daysByKey[dayKey] = day
+
+                    mergeCell(cell, into: &dailyDetailMap, key: dayKey, provider: provider, model: model)
+
+                    if in30 {
+                        var hb = hourlyByStart[localHour] ?? HourBucket()
+                        hb.tokens = hb.tokens + cell.tokens
+                        hb.cost += cell.cost
+                        hb.requests += cell.requests
+                        hourlyByStart[localHour] = hb
+
+                        mergeCell(cell, into: &hourlyDetailMap, key: localHour, provider: provider, model: model)
+                    }
+                }
+            }
+        }
+
+        var projectTotals: [String: (tokens: TokenCountsCodable, cost: Double, requests: Int, lastActive: Date?)] = [:]
+        for (utcKey, projects) in projectHours {
+            guard let utcDate = date(forUTCHourKey: utcKey) else { continue }
+            let dayKey = localDayKey(utcDate, calendar: calendar)
+            guard keep30.contains(dayKey) else { continue }
+            for (project, pb) in projects where pb.requests > 0 || pb.tokens.total > 0 {
+                var entry = projectTotals[project] ?? (TokenCountsCodable(), 0, 0, nil)
+                entry.tokens = entry.tokens + pb.tokens
+                entry.cost += pb.cost
+                entry.requests += pb.requests
+                if let la = pb.lastActive, entry.lastActive == nil || la > entry.lastActive! {
+                    entry.lastActive = la
+                }
+                projectTotals[project] = entry
+            }
+        }
+
+        for extra in extraDayEntries {
+            let dayKey = localDayKey(extra.when, calendar: calendar)
+            guard keep365.contains(dayKey) else { continue }
+            var day = daysByKey[dayKey] ?? DayBucket()
+            day.tokensByModel[extra.model] = (day.tokensByModel[extra.model] ?? TokenCountsCodable()) + extra.tokens
+            day.requestsByModel[extra.model, default: 0] += 1
+            day.requests += 1
+            daysByKey[dayKey] = day
+
+            var extraCell = DetailBucket()
+            extraCell.tokens = extra.tokens
+            extraCell.requests = 1
+            mergeCell(extraCell, into: &dailyDetailMap, key: dayKey, provider: extra.provider, model: extra.model)
+
+            if keep30.contains(dayKey), let project = extra.project {
+                var entry = projectTotals[project] ?? (TokenCountsCodable(), 0, 0, nil)
+                entry.tokens = entry.tokens + extra.tokens
+                entry.requests += 1
+                if entry.lastActive == nil || extra.when > entry.lastActive! {
+                    entry.lastActive = extra.when
+                }
+                projectTotals[project] = entry
+            }
+        }
+
+        var daily: [DailyUsage] = []
+        daily.reserveCapacity(keys30.count)
+        var modelTotals: [String: (tokens: TokenCountsCodable, cost: Double, requests: Int)] = [:]
+        for key in keys30 {
+            let bucket = daysByKey[key]
+            let totalTokens = bucket?.totalTokens.asTokenCounts ?? TokenCounts()
+            let totalCost = bucket?.totalCost ?? 0
+            let dayDate = date(forDayKey: key, calendar: calendar) ?? now
+            daily.append(DailyUsage(
+                day: calendar.startOfDay(for: dayDate),
+                tokens: totalTokens,
+                cost: totalCost,
+                requests: bucket?.requests ?? 0,
+                cacheSavings: bucket?.cacheSavings ?? 0,
+                cacheWrite1h: bucket?.cacheWrite1h ?? 0))
+            if let bucket {
+                for (model, tc) in bucket.tokensByModel {
+                    var entry = modelTotals[model] ?? (TokenCountsCodable(), 0, 0)
+                    entry.tokens = entry.tokens + tc
+                    modelTotals[model] = entry
+                }
+                for (model, cost) in bucket.costByModel {
+                    var entry = modelTotals[model] ?? (TokenCountsCodable(), 0, 0)
+                    entry.cost += cost
+                    modelTotals[model] = entry
+                }
+                for (model, reqs) in bucket.requestsByModel {
+                    var entry = modelTotals[model] ?? (TokenCountsCodable(), 0, 0)
+                    entry.requests += reqs
+                    modelTotals[model] = entry
+                }
+            }
+        }
+
+        let models = modelTotals.map { (model, v) in
+            ModelShare(model: model, tokens: v.tokens.asTokenCounts.total, cost: v.cost, detail: v.tokens.asTokenCounts, requests: v.requests)
+        }.sorted { $0.tokens > $1.tokens }
+        let today = daily.last ?? DailyUsage(day: calendar.startOfDay(for: now))
+
+        let history = keys365.map { key -> DailyUsage in
+            let bucket = daysByKey[key]
+            let dayDate = date(forDayKey: key, calendar: calendar) ?? now
+            return DailyUsage(
+                day: calendar.startOfDay(for: dayDate),
+                tokens: bucket?.totalTokens.asTokenCounts ?? TokenCounts(),
+                cost: bucket?.totalCost ?? 0,
+                requests: bucket?.requests ?? 0,
+                cacheSavings: bucket?.cacheSavings ?? 0,
+                cacheWrite1h: bucket?.cacheWrite1h ?? 0)
+        }
+
+        let hourly = hourlyByStart
+            .filter { $0.value.requests > 0 || $0.value.tokens.total > 0 }
+            .sorted { $0.key < $1.key }
+            .map { HourlyUsage(hour: $0.key, tokens: $0.value.tokens.asTokenCounts, cost: $0.value.cost, requests: $0.value.requests) }
+
+        var hourlyDetail: [UsageBucket] = []
+        for (start, byProvider) in hourlyDetailMap {
+            for (provider, byModel) in byProvider {
+                for (model, cell) in byModel where cell.requests > 0 {
+                    hourlyDetail.append(UsageBucket(
+                        start: start, tool: tool, provider: provider, model: model,
+                        tokens: cell.tokens.asTokenCounts, cost: cell.cost, requests: cell.requests,
+                        cacheSavings: cell.cacheSavings, cacheWrite1h: cell.cacheWrite1h,
+                        timedOutputTokens: cell.timedOutputTokens, timedDurationMs: cell.timedDurationMs))
+                }
+            }
+        }
+        hourlyDetail.sort {
+            if $0.start != $1.start { return $0.start < $1.start }
+            if $0.provider != $1.provider { return $0.provider < $1.provider }
+            return $0.model < $1.model
+        }
+
+        var dailyDetail: [UsageBucket] = []
+        for (dayKey, byProvider) in dailyDetailMap {
+            guard let rawDate = date(forDayKey: dayKey, calendar: calendar) else { continue }
+            let start = calendar.startOfDay(for: rawDate)
+            for (provider, byModel) in byProvider {
+                for (model, cell) in byModel where cell.requests > 0 {
+                    dailyDetail.append(UsageBucket(
+                        start: start, tool: tool, provider: provider, model: model,
+                        tokens: cell.tokens.asTokenCounts, cost: cell.cost, requests: cell.requests,
+                        cacheSavings: cell.cacheSavings, cacheWrite1h: cell.cacheWrite1h,
+                        timedOutputTokens: cell.timedOutputTokens, timedDurationMs: cell.timedDurationMs))
+                }
+            }
+        }
+        dailyDetail.sort {
+            if $0.start != $1.start { return $0.start < $1.start }
+            if $0.provider != $1.provider { return $0.provider < $1.provider }
+            return $0.model < $1.model
+        }
+
+        let projects = projectTotals.map { (project, v) in
+            ProjectShare(project: project, tool: tool, tokens: v.tokens.asTokenCounts, cost: v.cost, requests: v.requests, lastActive: v.lastActive)
+        }.sorted { $0.tokens.total > $1.tokens.total }.prefix(50).map { $0 }
+
+        return Snapshot(
+            today: today, daily: daily, models: models, history: history,
+            hourly: hourly, projects: projects, hourlyDetail: hourlyDetail, dailyDetail: dailyDetail)
+    }
+
+    private static func mergeCell<K: Hashable>(_ cell: DetailBucket, into map: inout [K: [String: [String: DetailBucket]]],
+                                               key: K, provider: String, model: String) {
+        var byProvider = map[key] ?? [:]
+        var byModel = byProvider[provider] ?? [:]
+        var dst = byModel[model] ?? DetailBucket()
+        dst.tokens = dst.tokens + cell.tokens
+        dst.cost += cell.cost
+        dst.requests += cell.requests
+        dst.cacheSavings += cell.cacheSavings
+        dst.cacheWrite1h += cell.cacheWrite1h
+        dst.timedOutputTokens += cell.timedOutputTokens
+        dst.timedDurationMs += cell.timedDurationMs
+        byModel[model] = dst
+        byProvider[provider] = byModel
+        map[key] = byProvider
+    }
+}
 
 enum ISO8601 {
     private static let withFraction: ISO8601DateFormatter = {
@@ -454,12 +771,48 @@ enum LineBytePrefilter {
 
 /// 极简只读 SQLite 包装，只给 Usage 后端用。不写、不建索引、不改 PRAGMA journal_mode。
 final class ReadOnlySQLite {
+    private static let sqliteMagic: [UInt8] = Array("SQLite format 3\0".utf8)
     private var db: OpaquePointer?
+    /// 因 WAL 库头存在但缺 -shm、常规只读打不开而退回 immutable=1（此时同目录未归档的 -wal 不会被读到）
+    private(set) var usedImmutableFallback = false
 
-    init?(path: String, busyTimeoutMs: Int32 = 2000) {
+    init?(path: String, busyTimeoutMs: Int32 = 2000, immutable: Bool = false) {
+        // 调用方显式要 immutable（Antigravity 原生库：只读快照，不跟 agy 抢锁；看不到未检查点的 WAL，
+        // 刚生成的一步可能暂时补不出模型，下轮再补）
+        if immutable, let uri = Self.immutableURI(path) {
+            guard let handle = Self.openAndProbe(uri, flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_NOMUTEX, busyTimeoutMs: busyTimeoutMs) else { return nil }
+            self.db = handle
+            self.usedImmutableFallback = true
+            return
+        }
+        // 先走常规只读：delete 日志模式（如 Cursor 的 state.vscdb）本来就没有 -shm，开着照样写，
+        // 按“无 -shm”直接挂 immutable=1 会关掉文件锁读到撕裂页；只有常规打开/预探失败、
+        // 且确认库头为 WAL 模式又确实缺 -shm 时，才退回 immutable=1 只读主库。
+        if let handle = Self.openAndProbe(path, flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, busyTimeoutMs: busyTimeoutMs) {
+            self.db = handle
+            return
+        }
+        if FileManager.default.fileExists(atPath: path + "-shm"),
+           let handle = Self.openAndProbe(path, flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, busyTimeoutMs: busyTimeoutMs) {
+            self.db = handle
+            return
+        }
+        guard Self.hasWalHeaderWithoutShm(at: path) else { return nil }
+        let uri = URL(fileURLWithPath: path).absoluteString + "?immutable=1"
+        guard let handle = Self.openAndProbe(
+            uri,
+            flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_NOMUTEX,
+            busyTimeoutMs: busyTimeoutMs
+        ) else {
+            return nil
+        }
+        self.db = handle
+        self.usedImmutableFallback = true
+    }
+
+    private static func openAndProbe(_ target: String, flags: Int32, busyTimeoutMs: Int32) -> OpaquePointer? {
         var handle: OpaquePointer?
-        let rc = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil)
-        guard rc == SQLITE_OK, let handle else {
+        guard sqlite3_open_v2(target, &handle, flags, nil) == SQLITE_OK, let handle else {
             if let handle { sqlite3_close(handle) }
             return nil
         }
@@ -469,7 +822,59 @@ final class ReadOnlySQLite {
         sqlite3_exec(handle, "PRAGMA query_only=1;", nil, nil, nil)
         sqlite3_exec(handle, "PRAGMA cache_size=-2000;", nil, nil, nil)
         sqlite3_exec(handle, "PRAGMA mmap_size=0;", nil, nil, nil)
-        self.db = handle
+        // sqlite3_open_v2 延迟读页头，预探并 step 一次 sqlite_master，打不开当场返回 nil 而非静默查出空集
+        var probe: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "SELECT 1 FROM sqlite_master LIMIT 1;", -1, &probe, nil) == SQLITE_OK else {
+            if let probe { sqlite3_finalize(probe) }
+            sqlite3_close(handle)
+            return nil
+        }
+        let stepRc = sqlite3_step(probe)
+        sqlite3_finalize(probe)
+        guard stepRc == SQLITE_ROW || stepRc == SQLITE_DONE else {
+            sqlite3_close(handle)
+            return nil
+        }
+        return handle
+    }
+
+    /// SQLite 页头偏移 18/19 为写/读版本，值为 2 代表 WAL 模式（1 为回滚日志模式）
+    private static func hasWalHeaderWithoutShm(at path: String) -> Bool {
+        guard !FileManager.default.fileExists(atPath: path + "-shm"),
+              let fh = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? fh.close() }
+        let header: Data
+        if #available(macOS 10.15.4, *) {
+            guard let d = try? fh.read(upToCount: 20) else { return false }
+            header = d
+        } else {
+            header = fh.readData(ofLength: 20)
+        }
+        guard header.count >= 20, header.starts(with: sqliteMagic) else { return false }
+        return header[18] == 2 || header[19] == 2
+    }
+
+    func tableExists(_ name: String) -> Bool {
+        var found = false
+        query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1", bind: [name]) { _ in
+            found = true
+        }
+        return found
+    }
+
+    func tableHasRows(_ name: String) -> Bool {
+        var nonEmpty = false
+        query("SELECT 1 FROM \(name) LIMIT 1") { _ in
+            nonEmpty = true
+        }
+        return nonEmpty
+    }
+
+    private static func immutableURI(_ path: String) -> String? {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "/-_.")
+        guard let encoded = path.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return "file:\(encoded)?immutable=1"
     }
 
     deinit {
@@ -481,7 +886,8 @@ final class ReadOnlySQLite {
     @discardableResult
     func query(_ sql: String, bind: [Any] = [], row: (Row) -> Bool) -> Bool {
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return true }
+        let prep = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard prep == SQLITE_OK, let stmt else { return true }
         defer { sqlite3_finalize(stmt) }
 
         for (i, value) in bind.enumerated() {
@@ -494,8 +900,10 @@ final class ReadOnlySQLite {
             }
         }
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var step = sqlite3_step(stmt)
+        while step == SQLITE_ROW {
             if !row(Row(stmt: stmt)) { return false }
+            step = sqlite3_step(stmt)
         }
         return true
     }

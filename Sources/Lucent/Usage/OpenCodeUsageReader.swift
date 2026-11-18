@@ -1,36 +1,30 @@
 import Foundation
 
-// OpenCode 用量：~/.local/share/opencode/opencode.db，message 表（目前是现行表；更新的
-// session_message 表在多数安装里还是空的，是 opencode 还没切过去的新 schema，两个都查一下，
-// 谁有数据用谁）。每行 data 是一段 JSON，assistant 消息带 tokens/cost/modelID/providerID。
-// 项目名从 session 表的 directory 字段取最后一级（message 表本身没有目录信息，要 join 一下，
-// session 表统共几百行，join 很便宜）。
-//
-// 数据库是常年开着写 WAL 的 live db（可能有好几 GB），只读打开、带 busy_timeout，绝不写。
-//
-// 增量游标用 rowid，不用 time_created：message/session_message 表都只按主键建了索引，
-// 对 time_created 的全局查询没有可用索引，`WHERE time_created >= ?` 得整表扫完再排序。
-// rowid 是 SQLite 隐式维护的主键别名，天然有索引、天然单调，`WHERE rowid > ?` 直接从游标那一页
-// 续着扫，一行新数据都没有时几乎是 O(1)（早期版本按 time_created 扫，每 15 秒都要把
-// 整个 10GB 的库读一遍——根源就是没有可用索引）。
-//
-// cacheWrite1h：OpenCode 的 tokens.cache 只有 read/write，没有 5m/1h 的拆分，这里恒为 0。
-// cacheSavings：走自定义中转的 provider 常常是 $0 记账，算不出"按原价要多花多少"，
-// 所以恒为 0（OpenCode 没有像 Claude 那样的公开价目表可以算"原价"）。
+// OpenCode 用量：~/.local/share/opencode/opencode.db。
+// V1 写在 message，V2 迁移后写在 session_message（两表可能并存历史与新消息，按消息 id 合并去重；V2 表空或不存在时只读 V1）。
+// OpenCode 的 message / session_message 均无 time_updated 索引（只有 rowid 主键、message(session_id,time_created,id)、
+// session_message(time_created)），按 time_updated 设游标会每次整表扫：因此主增量仍走 rowid 游标，
+// 另外只在有索引的最近窗口 / 未完结候选集里补查“rowid 已扫过但后来原地 UPDATE 补齐完成态”的行。
+
+struct OpenCodeTableCursor: Codable, Sendable {
+    var lastRowid: Int64 = 0
+    /// 已追平的更新水位（毫秒）；存在未完结行时压在最早未完结行之前，供最近窗口补查过滤旧行
+    var caughtUpUpdatedMs: Int64 = 0
+    /// rowid <= lastRowid 中见到过但当时未完结的行，下轮按主键直查兜底（防并发大量新行挤出尾窗）
+    var pendingRowids: [Int64] = []
+}
 
 struct OpenCodeUsageCache: Codable, Sendable {
-    /// 统计口径变了就加一，旧缓存丢弃重算（和 ClaudeUsageCache 同步）
-    static let currentVersion = 5
+    /// 统计口径变了就加一，旧缓存丢弃重算
+    static let currentVersion = 7
     var version: Int? = OpenCodeUsageCache.currentVersion
-    /// 每张表自己的 rowid 游标（message / session_message 的 rowid 空间互相独立）
-    var lastRowidByTable: [String: Int64] = [:]
-    /// 同 Claude：过了 30 天只留天总量，过了 365 天才真正删
-    var days: [String: DayBucket] = [:]
-    var hours: [String: HourBucket] = [:]
-    var projectDays: [String: [String: ProjectBucket]] = [:]
-    /// 近 30 天逐小时 / 全部历史逐日 × 供应商（providerID）× 模型
+    var cursorByTable: [String: OpenCodeTableCursor] = [:]
+    /// 已入账消息 id -> 创建毫秒时间戳，防原地 UPDATE 重算，也供 V1 + V2 合并按消息 id 去重
+    var countedMessages: [String: Int64] = [:]
+    /// 按 UTC 整点键存最长 367 天（供应商 × 模型）聚合，不绑定写入时的本机时区
     var detailHours: [String: [String: [String: DetailBucket]]] = [:]
-    var detailDays: [String: [String: [String: DetailBucket]]] = [:]
+    /// 近 32 天按 UTC 整点存项目聚合
+    var projectHours: [String: [String: ProjectBucket]] = [:]
     var recentRequests: [UsageRequestCodable] = []
     /// 同 Claude：跨重启、跨空转都要保留，不能只在当次扫描里算
     var lastActivity: Date?
@@ -66,7 +60,7 @@ struct OpenCodeLocalResult: Sendable {
 }
 
 final class OpenCodeUsageReader {
-    private let dataDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/opencode")
+    private var dataDir: URL { UsageHome.url.appendingPathComponent(".local/share/opencode") }
     private let cacheFile = UsageCacheLocation.url("opencode-usage-cache.json")
     private var recent = RecentEventWindow()
 
@@ -109,6 +103,12 @@ final class OpenCodeUsageReader {
             if pendingBacklog {
                 // 还没读完：不能记成“没变”，否则数据库不再写入时剩下的永远读不到
                 cache.lastDbSize = -2
+            } else if db.usedImmutableFallback {
+                // immutable=1 会忽略同目录的 -wal：只要 -wal 有字节就不能记成已消费，留 -1 让下轮继续重试
+                cache.lastDbSize = dbSize
+                cache.lastDbMtime = dbMtime
+                cache.lastWalSize = walSize > 0 ? -1 : 0
+                cache.lastWalMtime = walSize > 0 ? -1 : walMtime
             } else {
                 cache.lastDbSize = dbSize
                 cache.lastDbMtime = dbMtime
@@ -119,25 +119,21 @@ final class OpenCodeUsageReader {
             saveCache(cache)
         }
 
-        let (today, daily, models) = ClaudeCodeUsageReader.buildWindows(from: cache.days, now: now)
-        let history = ClaudeCodeUsageReader.buildHistory(from: cache.days, now: now)
-        let hourly = ClaudeCodeUsageReader.buildHourly(from: cache.hours, now: now)
-        let projects = ClaudeCodeUsageReader.buildProjects(from: cache.projectDays, tool: .opencode, now: now)
+        let snap = UTCHourRollup.build(detailHours: cache.detailHours, projectHours: cache.projectHours,
+                                       tool: .opencode, now: now)
         let requests = cache.recentRequests.compactMap { $0.toContract() }
-        let hourlyDetail = ClaudeCodeUsageReader.buildDetailBuckets(from: cache.detailHours, tool: .opencode) { date(forHourKey: $0) }
-        let dailyDetail = ClaudeCodeUsageReader.buildDetailBuckets(from: cache.detailDays, tool: .opencode) { date(forDayKey: $0) }
         // OpenCode 没有像 Claude 那样可信的公开价目表：有价（非 0 美元）就说明记录里本来有价，没价就留 nil，
         // 只标一句"记录的金额是不是 $0"，不编一个假的单价
-        let pricing = models.map { m in
+        let pricing = snap.models.map { m in
             PricingEntry(model: m.model, tool: .opencode, input: nil, output: nil, cacheRead: nil,
                          cacheWrite5m: nil, cacheWrite1h: nil,
                          source: m.cost == 0 ? L("OpenCode 自带记录（金额 $0）") : L("OpenCode 自带记录"))
         }
 
-        let blocks = UsageBlocks.summarize(hours: cache.hours, now: now)
-        var result = OpenCodeLocalResult(status: .ok, today: today, daily: daily, models: models, history: history,
-                                    hourly: hourly, recentRequests: requests, projects: projects,
-                                    hourlyDetail: hourlyDetail, dailyDetail: dailyDetail, pricing: pricing,
+        let blocks = UsageBlocks.summarize(utcDetailHours: cache.detailHours, now: now)
+        var result = OpenCodeLocalResult(status: .ok, today: snap.today, daily: snap.daily, models: snap.models, history: snap.history,
+                                    hourly: snap.hourly, recentRequests: requests, projects: snap.projects,
+                                    hourlyDetail: snap.hourlyDetail, dailyDetail: snap.dailyDetail, pricing: pricing,
                                     lastActivity: cache.lastActivity, tokensPerMinute: recent.tokensPerMinute(now: now),
                                     zeroCostProviders: zeroCostProviders)
         result.hasBacklog = pendingBacklog
@@ -147,123 +143,329 @@ final class OpenCodeUsageReader {
         return result
     }
 
-    /// message 是当前在用的表；session_message 是尚未启用的新 schema，留个后备查询以防以后切过去。
-    /// 两张表都按 rowid 增量查，谁有数据就用谁（跟之前一样，第一张查到行就不查第二张）。
+    private enum TableKind {
+        case v1Message
+        case v2SessionMessage
+    }
+
+    private struct TableSpec {
+        var name: String
+        var kind: TableKind
+        var sessionJoinSQL: String
+        var dirExprSQL: String
+    }
+
+    private static let recentUpdateWindowMs: Int64 = 6 * 3600 * 1000
+    private static let recentRowidTail: Int64 = 512
+    private static let watermarkOverlapMs: Int64 = 60 * 1000
+    private static let pendingRetentionMs: Int64 = 24 * 3600 * 1000
+
+    /// V2 表为空或不存在时照旧只读 V1，不能因为预建了空表就切换；
+    /// V2 表有数据时，V1 message 与 V2 session_message 一起读并按 countedMessages[id] 合并去重。
+    private static func activeTables(db: ReadOnlySQLite) -> [TableSpec] {
+        let hasMessage = db.tableExists("message")
+        let hasSessionMessage = db.tableExists("session_message") && db.tableHasRows("session_message")
+        let hasSession = db.tableExists("session")
+        let hasSessionV2 = db.tableExists("session_v2")
+
+        var specs: [TableSpec] = []
+        if hasMessage {
+            let joinSQL = hasSession ? "LEFT JOIN session s ON s.id = m.session_id" : ""
+            let dirSQL = hasSession ? "s.directory" : "NULL"
+            specs.append(TableSpec(name: "message", kind: .v1Message, sessionJoinSQL: joinSQL, dirExprSQL: dirSQL))
+        }
+        if hasSessionMessage {
+            let joinSQL: String
+            let dirSQL: String
+            if hasSessionV2 && hasSession {
+                joinSQL = "LEFT JOIN session_v2 s2 ON s2.id = m.session_id LEFT JOIN session s1 ON s1.id = m.session_id"
+                dirSQL = "COALESCE(s2.directory, s1.directory)"
+            } else if hasSessionV2 {
+                joinSQL = "LEFT JOIN session_v2 s ON s.id = m.session_id"
+                dirSQL = "s.directory"
+            } else if hasSession {
+                joinSQL = "LEFT JOIN session s ON s.id = m.session_id"
+                dirSQL = "s.directory"
+            } else {
+                joinSQL = ""
+                dirSQL = "NULL"
+            }
+            specs.append(TableSpec(name: "session_message", kind: .v2SessionMessage, sessionJoinSQL: joinSQL, dirExprSQL: dirSQL))
+        }
+        return specs
+    }
+
+    private static func nonEmpty(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     private func runIncrementalQuery(db: ReadOnlySQLite, cache: inout OpenCodeUsageCache) {
         let now = Date()
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
         let historyCutoffMs = Int64((now.addingTimeInterval(-365 * 86400)).timeIntervalSince1970 * 1000)
         var lastActivity = cache.lastActivity
-        // session 表就几百行，join 一下拿 directory（项目路径），只取最后一级，不存整条路径。
-        //
-        // length(m.data) <= maxRowDataBytes 放在 SQL 里过滤：这张表里有行用户粘贴的内容是几 MB 到
-        // 25MB，不在 SQL 里过滤掉，光是判断 length() 就要先把大 BLOB 翻出来；配合 rowid 游标，
-        // 正常 tick（没有新行）这整条查询基本不用碰任何大页。
-        let tables = ["message", "session_message"]
-        var backlog = false
-        defer { pendingBacklog = backlog }
-        for table in tables {
-            var sawAnyRow = false
-            var bytesBudget = 32 * 1024 * 1024
-            defer { if bytesBudget <= 0 { backlog = true } } // 一轮最多转换这么多字节的 data 列，参见 Claude 侧同款预算
-            let lastRowid = cache.lastRowidByTable[table] ?? 0
-            var newRowid = lastRowid
+        var bytesBudget = 32 * 1024 * 1024
+        var hitBudget = false
+        defer { pendingBacklog = hitBudget }
 
-            let sql = "SELECT m.rowid, m.id, m.time_created, m.data, s.directory FROM \(table) m " +
-                "LEFT JOIN session s ON s.id = m.session_id " +
-                "WHERE m.rowid > ? AND m.time_created >= ? AND length(m.data) <= \(maxRowDataBytes) " +
-                "ORDER BY m.rowid ASC"
-            db.query(sql, bind: [lastRowid, historyCutoffMs]) { row -> Bool in
-                sawAnyRow = true
-                guard bytesBudget > 0 else { return false }
-                let rowid = row.int64(0)
-                newRowid = rowid // rowid 严格递增，不用像以前那样记"同一时间戳有哪些 id"了
-                let id = row.text(1) ?? ""
-                let timeCreated = row.int64(2)
-
-                let dataBytes = row.byteCount(3)
-                guard dataBytes > 0, dataBytes <= maxRowDataBytes else { return true }
-                bytesBudget -= dataBytes
-                guard let dataStr = row.text(3, maxBytes: maxRowDataBytes), dataStr.contains("\"tokens\""),
-                      let data = dataStr.data(using: .utf8),
-                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      (obj["role"] as? String) == "assistant",
-                      let tokens = obj["tokens"] as? [String: Any]
-                else { return true }
-
-                let modelID = (obj["modelID"] as? String) ?? "unknown"
-                let providerID = (obj["providerID"] as? String) ?? "unknown"
-                let cost = (obj["cost"] as? NSNumber)?.doubleValue ?? 0
-                let input = (tokens["input"] as? NSNumber)?.int64Value ?? 0
-                let output = (tokens["output"] as? NSNumber)?.int64Value ?? 0
-                let reasoning = (tokens["reasoning"] as? NSNumber)?.int64Value ?? 0
-                let cacheDict = tokens["cache"] as? [String: Any]
-                let cacheRead = (cacheDict?["read"] as? NSNumber)?.int64Value ?? 0
-                let cacheWrite = (cacheDict?["write"] as? NSNumber)?.int64Value ?? 0
-                if input == 0 && output == 0 && cacheRead == 0 && cacheWrite == 0 { return true }
-
-                let timestamp = Date(timeIntervalSince1970: Double(timeCreated) / 1000)
-                let dayKey = localDayKey(timestamp)
-                let tcThis = TokenCountsCodable(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite, reasoning: reasoning)
-
-                var bucket = cache.days[dayKey] ?? DayBucket()
-                bucket.tokensByModel[modelID] = (bucket.tokensByModel[modelID] ?? TokenCountsCodable()) + tcThis
-                bucket.costByModel[modelID, default: 0] += cost
-                bucket.requestsByModel[modelID, default: 0] += 1
-                bucket.requests += 1
-                cache.days[dayKey] = bucket
-
-                let project = (row.text(4)).flatMap { dir -> String? in
-                    let last = (dir as NSString).lastPathComponent
-                    return last.isEmpty ? nil : last
-                }
-
-                var hourBucket = cache.hours[localHourKey(timestamp)] ?? HourBucket()
-                hourBucket.tokens = hourBucket.tokens + tcThis
-                hourBucket.cost += cost
-                hourBucket.requests += 1
-                cache.hours[localHourKey(timestamp)] = hourBucket
-
-                if let project {
-                    var projectsForDay = cache.projectDays[dayKey] ?? [:]
-                    var pb = projectsForDay[project] ?? ProjectBucket()
-                    pb.tokens = pb.tokens + tcThis
-                    pb.cost += cost
-                    pb.requests += 1
-                    if pb.lastActive == nil || timestamp > pb.lastActive! { pb.lastActive = timestamp }
-                    projectsForDay[project] = pb
-                    cache.projectDays[dayKey] = projectsForDay
-                }
-
-                // 耗时：OpenCode 自己在 time.created / time.completed 记了精确的起止时间，不用估
-                var durationMs: Int?
-                if let timeDict = obj["time"] as? [String: Any],
-                   let completed = (timeDict["completed"] as? NSNumber)?.int64Value,
-                   let created = (timeDict["created"] as? NSNumber)?.int64Value, completed > created {
-                    durationMs = Int(completed - created)
-                }
-
-                ClaudeCodeUsageReader.addDetail(&cache.detailHours, key: localHourKey(timestamp), provider: providerID,
-                                                 model: modelID, delta: tcThis, cost: cost, cacheSavings: 0,
-                                                 cacheWrite1h: 0, durationMs: durationMs)
-                ClaudeCodeUsageReader.addDetail(&cache.detailDays, key: dayKey, provider: providerID,
-                                                 model: modelID, delta: tcThis, cost: cost, cacheSavings: 0,
-                                                 cacheWrite1h: 0, durationMs: durationMs)
-
-                let requestEntry = UsageRequestCodable(id: id, time: timestamp, tool: AITool.opencode.rawValue, model: modelID,
-                                                        project: project, sessionID: nil, tokens: tcThis, cacheWrite1h: 0, cost: cost,
-                                                        provider: providerID, durationMs: durationMs, durationIsEstimate: false)
-                RequestRing.push(requestEntry, into: &cache.recentRequests)
-
-                if cost == 0 { self.zeroCostProviders.insert("\(providerID)/\(modelID)") }
-
-                self.recent.add(timestamp, input + output)
-                if lastActivity == nil || timestamp > lastActivity! { lastActivity = timestamp }
-                return true
-            }
-            cache.lastRowidByTable[table] = newRowid
-            if sawAnyRow { break } // 这张表有数据就不用再查另一张了
+        let tables = Self.activeTables(db: db)
+        for spec in tables {
+            guard bytesBudget > 0 else { hitBudget = true; break }
+            scanTable(db: db, spec: spec, cache: &cache, bytesBudget: &bytesBudget,
+                      hitBudget: &hitBudget, nowMs: nowMs, historyCutoffMs: historyCutoffMs,
+                      lastActivity: &lastActivity)
+            if hitBudget { break }
         }
         cache.lastActivity = lastActivity
+    }
+
+    private struct TableScanState {
+        var newRowid: Int64
+        var maxUpdatedSeen: Int64
+        var incompleteHoldMs: Int64?
+        var stillPending = Set<Int64>()
+        var resolvedRowids = Set<Int64>()
+    }
+
+    private func scanTable(
+        db: ReadOnlySQLite,
+        spec: TableSpec,
+        cache: inout OpenCodeUsageCache,
+        bytesBudget: inout Int,
+        hitBudget: inout Bool,
+        nowMs: Int64,
+        historyCutoffMs: Int64,
+        lastActivity: inout Date?
+    ) {
+        let prior = cache.cursorByTable[spec.name] ?? OpenCodeTableCursor()
+        var state = TableScanState(newRowid: prior.lastRowid, maxUpdatedSeen: prior.caughtUpUpdatedMs)
+
+        let selectCols: String
+        let typeFilter: String
+        switch spec.kind {
+        case .v1Message:
+            selectCols = "m.rowid, m.id, m.time_created, m.time_updated, m.data, \(spec.dirExprSQL), NULL"
+            typeFilter = ""
+        case .v2SessionMessage:
+            selectCols = "m.rowid, m.id, m.time_created, m.time_updated, m.data, \(spec.dirExprSQL), m.type"
+            typeFilter = "AND m.type IN ('assistant', 'compaction') "
+        }
+
+        // 1) 主增量：rowid 是 SQLite 隐式整数主键，有索引且严格单调，无新行时 O(log N) 即停，绝不整表扫
+        let newRowsSQL = "SELECT \(selectCols) FROM \(spec.name) m \(spec.sessionJoinSQL) " +
+            "WHERE m.rowid > ? AND m.time_created >= ? \(typeFilter)" +
+            "AND length(m.data) <= \(maxRowDataBytes) ORDER BY m.rowid ASC"
+        db.query(newRowsSQL, bind: [prior.lastRowid, historyCutoffMs]) { row in
+            self.ingestRow(row, spec: spec, advanceRowid: true, nowMs: nowMs, state: &state,
+                           cache: &cache, bytesBudget: &bytesBudget, hitBudget: &hitBudget, lastActivity: &lastActivity)
+        }
+
+        // 2) 补查“rowid 已读过（<= prior.lastRowid）但之后原地 UPDATE 补齐完成态”的行：
+        // 两表都没有 time_updated 索引，不能写 WHERE time_updated > ? 扫全表；
+        // V1 message 只有 (session_id, time_created, id) 复合索引而无独立 time_created 索引，故走主键 rowid 最近尾窗；
+        // V2 session_message 有 (time_created) 索引，走最近时间窗并用 +m.rowid 禁用 rowid<=? 索引以免从第 1 行扫起。
+        if !hitBudget && prior.lastRowid > 0 {
+            let windowCreatedCutoffMs = max(historyCutoffMs, nowMs - Self.recentUpdateWindowMs)
+            let updatedCutoffMs = prior.caughtUpUpdatedMs > 0
+                ? max(windowCreatedCutoffMs, prior.caughtUpUpdatedMs - Self.watermarkOverlapMs)
+                : windowCreatedCutoffMs
+            switch spec.kind {
+            case .v1Message:
+                let tailStart = max(0, prior.lastRowid - Self.recentRowidTail)
+                let catchupSQL = "SELECT \(selectCols) FROM \(spec.name) m \(spec.sessionJoinSQL) " +
+                    "WHERE m.rowid > ? AND m.rowid <= ? AND m.time_created >= ? AND m.time_updated >= ? " +
+                    "AND length(m.data) <= \(maxRowDataBytes) ORDER BY m.rowid ASC"
+                db.query(catchupSQL, bind: [tailStart, prior.lastRowid, windowCreatedCutoffMs, updatedCutoffMs]) { row in
+                    self.ingestRow(row, spec: spec, advanceRowid: false, nowMs: nowMs, state: &state,
+                                   cache: &cache, bytesBudget: &bytesBudget, hitBudget: &hitBudget, lastActivity: &lastActivity)
+                }
+            case .v2SessionMessage:
+                let catchupSQL = "SELECT \(selectCols) FROM \(spec.name) m \(spec.sessionJoinSQL) " +
+                    "WHERE m.time_created >= ? AND +m.rowid <= ? AND m.time_updated >= ? \(typeFilter)" +
+                    "AND length(m.data) <= \(maxRowDataBytes)"
+                db.query(catchupSQL, bind: [windowCreatedCutoffMs, prior.lastRowid, updatedCutoffMs]) { row in
+                    self.ingestRow(row, spec: spec, advanceRowid: false, nowMs: nowMs, state: &state,
+                                   cache: &cache, bytesBudget: &bytesBudget, hitBudget: &hitBudget, lastActivity: &lastActivity)
+                }
+            }
+        }
+
+        // 3) 若曾记下过未完结行且已被挤出上面的尾窗，按主键 rowid 逐个点查兜底
+        if !hitBudget && !prior.pendingRowids.isEmpty {
+            let pointSQL = "SELECT \(selectCols) FROM \(spec.name) m \(spec.sessionJoinSQL) " +
+                "WHERE m.rowid = ? AND length(m.data) <= \(maxRowDataBytes)"
+            for pendingRowid in prior.pendingRowids where !state.resolvedRowids.contains(pendingRowid) && !state.stillPending.contains(pendingRowid) {
+                guard !hitBudget else {
+                    state.stillPending.insert(pendingRowid)
+                    continue
+                }
+                db.query(pointSQL, bind: [pendingRowid]) { row in
+                    self.ingestRow(row, spec: spec, advanceRowid: false, nowMs: nowMs, state: &state,
+                                   cache: &cache, bytesBudget: &bytesBudget, hitBudget: &hitBudget, lastActivity: &lastActivity)
+                }
+            }
+        }
+
+        let nextWatermark: Int64
+        if hitBudget {
+            nextWatermark = state.incompleteHoldMs.map { min(prior.caughtUpUpdatedMs, $0) } ?? prior.caughtUpUpdatedMs
+            for r in prior.pendingRowids where !state.resolvedRowids.contains(r) {
+                state.stillPending.insert(r)
+            }
+        } else {
+            nextWatermark = state.incompleteHoldMs ?? max(state.maxUpdatedSeen, nowMs)
+        }
+        cache.cursorByTable[spec.name] = OpenCodeTableCursor(
+            lastRowid: state.newRowid,
+            caughtUpUpdatedMs: nextWatermark,
+            pendingRowids: Array(state.stillPending.sorted().suffix(256))
+        )
+    }
+
+    private func ingestRow(
+        _ row: ReadOnlySQLite.Row,
+        spec: TableSpec,
+        advanceRowid: Bool,
+        nowMs: Int64,
+        state: inout TableScanState,
+        cache: inout OpenCodeUsageCache,
+        bytesBudget: inout Int,
+        hitBudget: inout Bool,
+        lastActivity: inout Date?
+    ) -> Bool {
+        guard bytesBudget > 0 else { hitBudget = true; return false }
+        let rowid = row.int64(0)
+        if advanceRowid { state.newRowid = rowid }
+        let id = row.text(1) ?? ""
+        let timeCreated = row.int64(2)
+        let timeUpdated = row.int64(3)
+        let rowType = row.text(6)
+        if timeUpdated > state.maxUpdatedSeen { state.maxUpdatedSeen = timeUpdated }
+
+        if !id.isEmpty, cache.countedMessages[id] != nil {
+            state.resolvedRowids.insert(rowid)
+            return true
+        }
+
+        let dataBytes = row.byteCount(4)
+        guard dataBytes > 0, dataBytes <= maxRowDataBytes else {
+            state.resolvedRowids.insert(rowid)
+            return true
+        }
+        bytesBudget -= dataBytes
+        guard let dataStr = row.text(4, maxBytes: maxRowDataBytes) else { return true }
+
+        if !dataStr.contains("\"tokens\"") {
+            let isAssistantCandidate: Bool
+            switch spec.kind {
+            case .v1Message: isAssistantCandidate = dataStr.contains("\"assistant\"")
+            case .v2SessionMessage: isAssistantCandidate = (rowType == "assistant" || rowType == "compaction")
+            }
+            if isAssistantCandidate && timeCreated >= nowMs - Self.pendingRetentionMs {
+                state.stillPending.insert(rowid)
+                let hold = max(0, timeUpdated - 1)
+                state.incompleteHoldMs = state.incompleteHoldMs.map { min($0, hold) } ?? hold
+            } else {
+                state.resolvedRowids.insert(rowid)
+            }
+            return true
+        }
+
+        guard let data = dataStr.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return true }
+
+        if case .v1Message = spec.kind, (obj["role"] as? String) != "assistant" {
+            state.resolvedRowids.insert(rowid)
+            return true
+        }
+
+        let timeDict = obj["time"] as? [String: Any]
+        let isCompleted: Bool
+        if rowType == "compaction" {
+            let status = obj["status"] as? String
+            isCompleted = status == "completed" || status == "failed"
+        } else if let completedVal = timeDict?["completed"], !(completedVal is NSNull) {
+            isCompleted = true
+        } else {
+            isCompleted = false
+        }
+        // 未完成占位行跳过不入账；记入 pendingRowids 并压住更新水位，等原地 UPDATE 补齐完成态后再补收
+        guard isCompleted else {
+            if timeCreated >= nowMs - Self.pendingRetentionMs {
+                state.stillPending.insert(rowid)
+                let hold = max(0, timeUpdated - 1)
+                state.incompleteHoldMs = state.incompleteHoldMs.map { min($0, hold) } ?? hold
+            } else {
+                state.resolvedRowids.insert(rowid)
+            }
+            return true
+        }
+        state.resolvedRowids.insert(rowid)
+
+        guard let tokens = obj["tokens"] as? [String: Any] else { return true }
+        let modelDict = obj["model"] as? [String: Any]
+        let modelID = Self.nonEmpty(obj["modelID"] as? String)
+            ?? Self.nonEmpty(obj["model"] as? String)
+            ?? Self.nonEmpty(modelDict?["id"] as? String)
+            ?? "unknown"
+        let providerID = Self.nonEmpty(obj["providerID"] as? String)
+            ?? Self.nonEmpty(modelDict?["providerID"] as? String)
+            ?? "unknown"
+        let cost = (obj["cost"] as? NSNumber)?.doubleValue ?? 0
+        let input = (tokens["input"] as? NSNumber)?.int64Value ?? 0
+        let rawOutput = (tokens["output"] as? NSNumber)?.int64Value ?? 0
+        let reasoning = (tokens["reasoning"] as? NSNumber)?.int64Value ?? 0
+        // OpenCode 的 tokens.output 不含思考 token，并入输出才能计入总 token 与输出统计
+        let output = rawOutput + reasoning
+        let cacheDict = tokens["cache"] as? [String: Any]
+        let cacheRead = (cacheDict?["read"] as? NSNumber)?.int64Value ?? 0
+        let cacheWrite = (cacheDict?["write"] as? NSNumber)?.int64Value ?? 0
+        if input == 0 && output == 0 && cacheRead == 0 && cacheWrite == 0 { return true }
+
+        let jsonCreatedMs = (timeDict?["created"] as? NSNumber)?.int64Value ?? 0
+        let createdMs = timeCreated > 0 ? timeCreated : jsonCreatedMs
+        if !id.isEmpty { cache.countedMessages[id] = createdMs }
+
+        let timestamp = Date(timeIntervalSince1970: Double(createdMs) / 1000)
+        let utcHour = utcHourKey(timestamp)
+        let tcThis = TokenCountsCodable(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite, reasoning: reasoning)
+
+        let project = (row.text(5)).flatMap { dir -> String? in
+            let last = (dir as NSString).lastPathComponent
+            return last.isEmpty ? nil : last
+        }
+        if let project {
+            UTCHourRollup.addProject(&cache.projectHours, utcHour: utcHour, project: project,
+                                     delta: tcThis, cost: cost, timestamp: timestamp)
+        }
+
+        var durationMs: Int?
+        if let timeDict,
+           let created = (timeDict["created"] as? NSNumber)?.int64Value, created > 0 {
+            let streamed = (timeDict["streamed"] as? NSNumber)?.int64Value
+            let completed = (timeDict["completed"] as? NSNumber)?.int64Value
+            let end = (streamed != nil && streamed! > created) ? streamed : completed
+            if let end, end > created {
+                durationMs = Int(end - created)
+            }
+        }
+
+        ClaudeCodeUsageReader.addDetail(&cache.detailHours, key: utcHour, provider: providerID,
+                                         model: modelID, delta: tcThis, cost: cost, cacheSavings: 0,
+                                         cacheWrite1h: 0, durationMs: durationMs)
+
+        let requestEntry = UsageRequestCodable(id: id, time: timestamp, tool: AITool.opencode.rawValue, model: modelID,
+                                                project: project, sessionID: nil, tokens: tcThis, cacheWrite1h: 0, cost: cost,
+                                                provider: providerID, durationMs: durationMs, durationIsEstimate: false)
+        RequestRing.push(requestEntry, into: &cache.recentRequests)
+
+        if cost == 0 { self.zeroCostProviders.insert("\(providerID)/\(modelID)") }
+
+        self.recent.add(timestamp, input + output)
+        if lastActivity == nil || timestamp > lastActivity! { lastActivity = timestamp }
+        return true
     }
 
     private static func emptyResult(_ status: UsageStatus) -> OpenCodeLocalResult {
@@ -274,23 +476,10 @@ final class OpenCodeUsageReader {
     }
 
     private func pruneOld(_ cache: inout OpenCodeUsageCache, now: Date) {
-        let keep365 = Set(last365DayKeys(now: now))
-        for key in cache.days.keys where !keep365.contains(key) {
-            cache.days.removeValue(forKey: key)
-        }
-        let keep30 = Set(last30DayKeys(now: now))
-        for key in cache.hours.keys where !keep30.contains(String(key.prefix(10))) {
-            cache.hours.removeValue(forKey: key)
-        }
-        for key in cache.projectDays.keys where !keep30.contains(key) {
-            cache.projectDays.removeValue(forKey: key)
-        }
-        for key in cache.detailHours.keys where !keep30.contains(String(key.prefix(10))) {
-            cache.detailHours.removeValue(forKey: key)
-        }
-        for key in cache.detailDays.keys where !keep365.contains(key) {
-            cache.detailDays.removeValue(forKey: key)
-        }
+        pruneUTCHourBuckets(&cache.detailHours, olderThan: now.addingTimeInterval(-367 * 86400))
+        pruneUTCHourBuckets(&cache.projectHours, olderThan: now.addingTimeInterval(-32 * 86400))
+        let idCutoffMs = Int64(now.addingTimeInterval(-367 * 86400).timeIntervalSince1970 * 1000)
+        cache.countedMessages = cache.countedMessages.filter { $0.value >= idCutoffMs }
     }
 
     private func loadCache() -> OpenCodeUsageCache {

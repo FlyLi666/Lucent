@@ -23,6 +23,45 @@ enum UsageDebugDump {
         AccountPrefs.debugStore = defaults
     }
 
+    static func runAgyQuotaCLI() async -> Int32 {
+        let args = CommandLine.arguments
+        if let parseIndex = args.firstIndex(of: "--agy-quota-parse"), args.indices.contains(parseIndex + 1) {
+            let path = args[parseIndex + 1]
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+                print("=== Antigravity quota parse ===")
+                print("file: \(path)")
+                print("status: failed(cannot read file)")
+                return 1
+            }
+            let result = AntigravityQuotaReader.parseCLIResult(data)
+            print("=== Antigravity quota parse ===")
+            print("file: \(path)")
+            printAgyQuotaResult(result)
+            return (result.failureReason == nil && !result.quotas.isEmpty) ? 0 : 1
+        }
+
+        let result = await AntigravityQuotaReader().fetchQuota()
+        print("=== Antigravity quota dump ===")
+        printAgyQuotaResult(result)
+        return result.failureReason == nil ? 0 : 1
+    }
+
+    private static func printAgyQuotaResult(_ result: AntigravityQuotaResult) {
+        print("source: \(result.source?.rawValue ?? "none")")
+        if let reason = result.failureReason {
+            print("status: failed(\(redact(reason)))")
+        } else {
+            print("status: ok")
+        }
+        print("buckets: \(result.quotas.count)")
+        for q in result.quotas {
+            let remaining = max(0, 1.0 - q.usedFraction)
+            print(String(
+                format: "  %@: remaining=%.4f (%.1f%%) used=%.1f%% resets=%@",
+                q.id, remaining, remaining * 100, q.usedFraction * 100, resetText(q.resetsAt)))
+        }
+    }
+
     static func run() async {
         let args = CommandLine.arguments
         if let summaryIndex = args.firstIndex(of: "--cursor-summary-test"), args.indices.contains(summaryIndex + 1) {
@@ -31,9 +70,10 @@ enum UsageDebugDump {
         }
         if args.contains("--cold") {
             // 固定名字（不随机），方便多次调用接着跑同一个临时缓存，直到真的追完全部历史数据；
-            // 想要真正从零开始就手动删掉这个目录
+            // 想要真正从零开始就手动删掉这个目录。钥匙串同样隔离到调试 service，避免未签名调试二进制触发授权弹窗。
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("lucent-usage-cold-test")
             UsageCacheLocation.debugOverrideDir = tmp
+            AccountVault.debugService = "local.lucent.monitor.accounts.cold-test"
             print("[--cold] 缓存目录临时指到 \(tmp.path)，不碰真实缓存")
         }
         if let dbIndex = args.firstIndex(of: "--cursor-db"), args.indices.contains(dbIndex + 1) {
@@ -190,6 +230,22 @@ enum UsageDebugDump {
             print("pricing (first 3): \(pricingLines.joined(separator: "; "))")
             let breakdown = u.last30Tokens
             print("last30 breakdown: input=\(breakdown.input) output=\(breakdown.output) cacheRead=\(breakdown.cacheRead) cacheWrite=\(breakdown.cacheWrite) unsplit=\(breakdown.unsplit)")
+            let allTokens = u.dailyDetail.reduce(TokenCounts()) { $0 + $1.tokens }
+            let allRequests = u.dailyDetail.reduce(0) { $0 + $1.requests }
+            let allTimedOut = u.dailyDetail.reduce(Int64(0)) { $0 + $1.timedOutputTokens }
+            let allTimedMs = u.dailyDetail.reduce(Int64(0)) { $0 + $1.timedDurationMs }
+            let avgSpeedStr = allTimedMs > 0 ? String(format: "%.1ftok/s", Double(allTimedOut) / (Double(allTimedMs) / 1000)) : "none"
+            print("all-history breakdown: requests=\(allRequests) input=\(allTokens.input) output=\(allTokens.output) cacheRead=\(allTokens.cacheRead) cacheWrite=\(allTokens.cacheWrite) avgSpeed=\(avgSpeedStr)")
+            if tool == .agy {
+                let s = AntigravityUsageReader.debugLastSpeedStats
+                let hasEst = u.recentRequests.contains { $0.durationIsEstimate && $0.durationMs != nil }
+                print("agy speed truth: speedSamples=\(s.speedSampleCount) exactDuration=\(s.exactDurationCount)/\(s.totalRequests) recentHasEstimate=\(hasEst) avgSpeed=\(avgSpeedStr)")
+            }
+            if tool == .grokbuild {
+                let s = GrokBuildUsageReader.debugLastSpeedStats
+                let hasEst = u.recentRequests.contains { $0.durationIsEstimate && $0.durationMs != nil }
+                print("grokbuild speed truth: speedSamples=\(s.speedSampleCount) exactDuration=\(s.exactDurationCount)/\(s.totalRequests) recentHasEstimate=\(hasEst) avgSpeed=\(avgSpeedStr)")
+            }
             if let b = u.currentBlock {
                 print("currentBlock: start=\(b.start.timeIntervalSince1970) end=\(b.end.timeIntervalSince1970) last=\(b.lastActivity.timeIntervalSince1970) input=\(b.tokens.input) output=\(b.tokens.output) cacheRead=\(b.tokens.cacheRead) cacheWrite=\(b.tokens.cacheWrite) unsplit=\(b.tokens.unsplit) total=\(b.tokens.total) requests=\(b.requests) active=\(b.isActive) tokPerMin=\(String(format: "%.4f", b.tokensPerMinute)) costPerHour=\(String(format: "%.6f", b.costPerHour)) projectedTokens=\(b.projectedTokens) projectedCost=\(String(format: "%.6f", b.projectedCost))")
             } else {
@@ -217,7 +273,7 @@ enum UsageDebugDump {
         let backlog = await store.debugBacklog()
         print("claudeDedupe30 outputBefore=\(dedupe.before) outputAfter=\(dedupe.after)")
         print("codexSqliteBackfill threads=\(sqlite.threads) tokens=\(sqlite.tokens) cost=0 note=sqlite 补的历史只有总数，金额记 0")
-        print("backlog claude=\(backlog.claude) opencode=\(backlog.opencode) codex=\(backlog.codex)")
+        print("backlog claude=\(backlog.claude) opencode=\(backlog.opencode) codex=\(backlog.codex) agy=\(backlog.agy) grokbuild=\(backlog.grokbuild)")
     }
 
     private static func resetText(_ date: Date?) -> String {

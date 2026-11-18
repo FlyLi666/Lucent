@@ -57,11 +57,13 @@ final class CursorUsageReader {
         var accessToken: String?
         var refreshToken: String?
         var membershipType: String?
+        var membershipAuthID: String?
         var cachedEmail: String?
         db.query("""
         SELECT key, value FROM ItemTable WHERE key IN (
             'cursorAuth/accessToken','cursorAuth/refreshToken',
-            'cursorAuth/stripeMembershipType','cursorAuth/cachedEmail')
+            'cursorAuth/stripeMembershipType','cursorAuth/stripeMembershipAuthId',
+            'cursorAuth/cachedEmail')
         """) { row in
             guard let key = row.text(0) else { return }
             let value = row.text(1)
@@ -69,33 +71,45 @@ final class CursorUsageReader {
             case "cursorAuth/accessToken": accessToken = value
             case "cursorAuth/refreshToken": refreshToken = value
             case "cursorAuth/stripeMembershipType": membershipType = value
+            case "cursorAuth/stripeMembershipAuthId": membershipAuthID = value
             case "cursorAuth/cachedEmail": cachedEmail = value
             default: break
             }
         }
-        guard let token = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty,
-              let claims = Self.claims(fromJWT: token) else { return nil }
-        let email = claims.email ?? Self.nonEmpty(cachedEmail)
+        guard let token = Self.nonEmpty(accessToken) else { return nil }
+        let userID: String
+        let email: String?
+        if let claims = Self.claims(fromJWT: token) {
+            userID = claims.userID
+            email = claims.email ?? Self.nonEmpty(cachedEmail)
+        } else {
+            // 新版客户端的 accessToken 可能不是明文三段式 JWT，退回读 stripeMembershipAuthId + cachedEmail 识别当前登录
+            let fallbackEmail = Self.nonEmpty(cachedEmail)
+            guard let fallbackUser = Self.extractUserID(membershipAuthID) ?? fallbackEmail else { return nil }
+            userID = fallbackUser
+            email = fallbackEmail
+        }
         return CursorAccount(accessToken: token, refreshToken: Self.nonEmpty(refreshToken),
-                             userID: claims.userID, email: email, membershipType: Self.nonEmpty(membershipType))
+                             userID: userID, email: email, membershipType: Self.nonEmpty(membershipType))
     }
 
-    /// JWT 的 sub 形如 "auth0|abc123"，取 "|" 之后的部分。邮箱只留给界面打码，不往外打日志
+    /// JWT 的 sub 或 stripeMembershipAuthId 形如 "auth0|user_..."，取最后一个 "|" 之后的用户 id
     private static func claims(fromJWT jwt: String) -> (userID: String, email: String?)? {
         let parts = jwt.split(separator: ".")
         guard parts.count >= 2,
               let payloadData = base64URLDecode(String(parts[1])),
               let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
-              let sub = json["sub"] as? String
+              let userID = extractUserID(json["sub"] as? String)
         else { return nil }
-        let userID: String
-        if let bar = sub.range(of: "|", options: .backwards) {
-            userID = String(sub[bar.upperBound...])
-        } else {
-            userID = sub
-        }
-        guard !userID.isEmpty else { return nil }
         return (userID, nonEmpty(json["email"] as? String))
+    }
+
+    private static func extractUserID(_ raw: String?) -> String? {
+        guard let s = nonEmpty(raw) else { return nil }
+        if let bar = s.range(of: "|", options: .backwards) {
+            return nonEmpty(String(s[bar.upperBound...]))
+        }
+        return s
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
@@ -331,7 +345,8 @@ final class CursorUsageReader {
                   (obj["shouldLogout"] as? Bool) != true
             else { return nil }
             let access = Self.nonEmpty((obj["access_token"] as? String) ?? (obj["accessToken"] as? String))
-            guard let access, Self.claims(fromJWT: access)?.userID == userID else { return nil }
+            guard let access else { return nil }
+            if let jwtUser = Self.claims(fromJWT: access)?.userID, jwtUser != userID { return nil }
             let refresh = Self.nonEmpty((obj["refresh_token"] as? String) ?? (obj["refreshToken"] as? String))
             return RotatedToken(access: access, refresh: refresh)
         } catch {

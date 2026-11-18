@@ -141,9 +141,10 @@ struct UsageDashboard: View {
         return HStack(spacing: 8) {
             // 左边管“看谁”（工具、供应商、模型），右边管“看多久、看多细”
             ToolFilter(filter: $filter)
+                .layoutPriority(1)
             PickMenu(title: L("供应商"), value: $provider, options: providers)
             PickMenu(title: L("模型"), value: $model, options: models)
-            Spacer()
+            Spacer(minLength: 0)
             Button { UIMotion.run(.easeOut(duration: 0.2)) { more.toggle() } } label: {
                 HStack(spacing: 4) {
                     Text(more ? L("收起指标") : L("更多指标"))
@@ -156,7 +157,9 @@ struct UsageDashboard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .fixedSize()
             Segmented(items: UsageRange.allCases.map { ($0, $0.title) }, selection: $range, compact: true)
+                .fixedSize()
         }
         .onChange(of: filter) { provider = nil; model = nil }
     }
@@ -196,16 +199,7 @@ private struct PickMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 5) {
-                Text(value ?? L("全部\(title)")).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-            }
-            .font(.system(size: 11.5, weight: value == nil ? .regular : .semibold))
-            .foregroundStyle(value == nil ? Theme.dim(0.84) : .white)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(.white.opacity(value == nil ? 0.06 : 0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
+            FilterMenuLabel(text: value ?? L("全部\(title)"), isActive: value != nil)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -456,7 +450,9 @@ private struct GroupTable: View {
                 ForEach(rows) { r in
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(r.parts.1.isEmpty ? "—" : r.parts.1).lineLimit(1).truncationMode(.middle)
+                            let label = kind == .model ? UsageFmt.modelName(r.parts.1) : r.parts.1
+                            Text(label.isEmpty ? "—" : label).lineLimit(1).truncationMode(.middle)
+                                .help(r.parts.1)
                             Text(r.parts.0).font(.system(size: 10.5)).foregroundStyle(Theme.tertiary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -485,7 +481,7 @@ private struct RequestLog: View {
     @State private var hover: String?
 
     static var cols: [(String, CGFloat?, Alignment)] { [
-        (L("时间"), 86, .leading), (L("应用"), 66, .leading), (L("供应商"), 76, .leading), (L("模型 · 项目"), nil, .leading),
+        (L("时间"), 86, .leading), (L("应用"), 76, .leading), (L("供应商"), 76, .leading), (L("模型 · 项目"), nil, .leading),
         (L("新增输入"), 60, .trailing), (L("输出"), 56, .trailing), (L("缓存命中"), 76, .trailing), (L("缓存写"), 76, .trailing),
         (L("金额"), 64, .trailing), (L("速度"), 84, .trailing),
     ] }
@@ -499,10 +495,11 @@ private struct RequestLog: View {
                     let t = r.tokens
                     HStack(spacing: 8) {
                         cell((today ? Self.timeF : Self.dateF).string(from: r.time), 86, align: .leading)
-                        cell(r.tool.shortTitle, 66, align: .leading)
+                        cell(r.tool.shortTitle, 76, align: .leading)
                         cell(r.provider.isEmpty ? "—" : r.provider, 76, align: .leading, dim: true)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(r.model).lineLimit(1).truncationMode(.middle)
+                            Text(UsageFmt.modelName(r.model)).lineLimit(1).truncationMode(.middle)
+                                .help(r.model)
                             if let p = r.project { Text(p).font(.system(size: 10.5)).foregroundStyle(Theme.tertiary).lineLimit(1).truncationMode(.middle) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -578,6 +575,7 @@ private struct PricingTable: View {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(e.model).lineLimit(1).truncationMode(.middle)
+                                .help(e.model)
                             Text(e.tool.title).font(.system(size: 10.5)).foregroundStyle(Theme.tertiary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

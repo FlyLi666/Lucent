@@ -72,10 +72,24 @@ enum UsageBlocks {
     }
 
     /// 逐小时桶当成「这一小时的起点发生过这些量」。整点对齐的 5 小时窗口用这个就够，不用再扫盘。
-    static func summarize(hours: [String: HourBucket], now: Date = Date()) -> (current: UsageBlock?, recent: [UsageBlock], peak: Int64) {
-        let events: [Event] = hours.compactMap { key, bucket in
-            guard bucket.requests > 0 || bucket.tokens.total > 0, let time = date(forHourKey: key) else { return nil }
-            return Event(time: time, tokens: bucket.tokens.asTokenCounts, cost: bucket.cost, requests: bucket.requests)
+    static func summarize(utcDetailHours: [String: [String: [String: DetailBucket]]], now: Date = Date()) -> (current: UsageBlock?, recent: [UsageBlock], peak: Int64) {
+        let cutoff = now.addingTimeInterval(-30 * 86400 - duration)
+        var events: [Event] = []
+        for (utcKey, byProvider) in utcDetailHours {
+            guard let time = date(forUTCHourKey: utcKey), time >= cutoff else { continue }
+            var tokens = TokenCountsCodable()
+            var cost = 0.0
+            var requests = 0
+            for byModel in byProvider.values {
+                for cell in byModel.values {
+                    tokens = tokens + cell.tokens
+                    cost += cell.cost
+                    requests += cell.requests
+                }
+            }
+            if requests > 0 || tokens.total > 0 {
+                events.append(Event(time: time, tokens: tokens.asTokenCounts, cost: cost, requests: requests))
+            }
         }
         return summarize(events, now: now)
     }
@@ -116,7 +130,6 @@ enum UsageBlocks {
     }
 
     private static func floorToLocalHour(_ date: Date, calendar: Calendar = .current) -> Date {
-        let parts = calendar.dateComponents([.year, .month, .day, .hour], from: date)
-        return calendar.date(from: parts) ?? date
+        calendar.dateInterval(of: .hour, for: date)?.start ?? date
     }
 }

@@ -50,11 +50,9 @@ struct RateLimitWindowCodable: Codable, Sendable {
 
 struct CodexUsageCache: Codable, Sendable {
     var fileCursors: [String: FileCursor] = [:]
-    var days: [String: DayBucket] = [:]
-    var hours: [String: HourBucket] = [:]
-    var projectDays: [String: [String: ProjectBucket]] = [:]
+    /// 按 UTC 整点键存最长 367 天聚合，避免切换本机时区后丢天或错窗
     var detailHours: [String: [String: [String: DetailBucket]]] = [:]
-    var detailDays: [String: [String: [String: DetailBucket]]] = [:]
+    var projectHours: [String: [String: ProjectBucket]] = [:]
     var lastTriggerByFile: [String: Double] = [:]
     /// 这个文件里"目前已知"的 model / cwd，跨轮增量续读要接得上（turn_context/thread_settings_applied 更新它们）
     var currentModelByFile: [String: String] = [:]
@@ -71,22 +69,21 @@ struct CodexUsageCache: Codable, Sendable {
     var lastRateLimitEventAt: Date?
     /// plan_type 原文。展示成「Codex Plus」发生在读出之后。
     var lastPlanType: String?
-    /// 已经从 state_5.sqlite 补过账、而且当时磁盘上没有 rollout 的 thread。记下加进去的那一份，文件后来又出现时要整笔扣回。
+    /// 已经从 state_5.sqlite 补过账、而且当时磁盘上没有 rollout 的 thread。记下时间戳与总数，读出时按当前时区折算，文件重现时扣回。
     var sqliteCredits: [String: CodexSqliteCredit] = [:]
     /// 文件已经不在、但 updated_at 超出历史窗口的 thread。没加过账，只是免得每轮再看一遍。
     var sqliteAppliedThreadIDs: Set<String> = []
     var sqliteSupplementedTokens: Int64 = 0
     var sqliteSupplementedThreads: Int = 0
     var version: Int = CodexUsageCache.currentVersion
-    /// 4：额度要记下事件时间才能丢掉过期窗口；旧缓存没有这个字段，整份重读。
-    static let currentVersion = 4
+    /// 5：改用 UTC 小时桶消除切时区丢数/错窗
+    static let currentVersion = 5
 }
 
 struct CodexSqliteCredit: Codable, Sendable {
     var tokens: Int64
     var model: String
     var project: String?
-    var dayKey: String
     var time: Double
     var rolloutPath: String
 }
@@ -215,36 +212,15 @@ final class CodexUsageReader {
                     if isFallback { fallbackModels.insert(model) }
 
                     let tc = TokenCountsCodable(input: input, output: output, cacheRead: cacheRead, cacheWrite: 0, reasoning: delta.reasoningOutput)
-                    let dayKey = localDayKey(timestamp)
-
-                    var bucket = cache.days[dayKey] ?? DayBucket()
-                    bucket.tokensByModel[model] = (bucket.tokensByModel[model] ?? TokenCountsCodable()) + tc
-                    bucket.costByModel[model, default: 0] += cost
-                    bucket.requestsByModel[model, default: 0] += 1
-                    bucket.requests += 1
-                    bucket.cacheSavings += cacheSavings
-                    cache.days[dayKey] = bucket
+                    let utcHour = utcHourKey(timestamp)
 
                     let project = currentCwd.flatMap { cwd -> String? in
                         let last = (cwd as NSString).lastPathComponent
                         return last.isEmpty ? nil : last
                     }
-
-                    var hourBucket = cache.hours[localHourKey(timestamp)] ?? HourBucket()
-                    hourBucket.tokens = hourBucket.tokens + tc
-                    hourBucket.cost += cost
-                    hourBucket.requests += 1
-                    cache.hours[localHourKey(timestamp)] = hourBucket
-
                     if let project {
-                        var projectsForDay = cache.projectDays[dayKey] ?? [:]
-                        var pb = projectsForDay[project] ?? ProjectBucket()
-                        pb.tokens = pb.tokens + tc
-                        pb.cost += cost
-                        pb.requests += 1
-                        if pb.lastActive == nil || timestamp > pb.lastActive! { pb.lastActive = timestamp }
-                        projectsForDay[project] = pb
-                        cache.projectDays[dayKey] = projectsForDay
+                        UTCHourRollup.addProject(&cache.projectHours, utcHour: utcHour, project: project,
+                                                 delta: tc, cost: cost, timestamp: timestamp)
                     }
 
                     var durationMs: Int?
@@ -255,10 +231,7 @@ final class CodexUsageReader {
                         }
                     }
 
-                    ClaudeCodeUsageReader.addDetail(&cache.detailHours, key: localHourKey(timestamp), provider: Self.provider,
-                                                     model: model, delta: tc, cost: cost, cacheSavings: cacheSavings,
-                                                     cacheWrite1h: 0, durationMs: durationMs)
-                    ClaudeCodeUsageReader.addDetail(&cache.detailDays, key: dayKey, provider: Self.provider,
+                    ClaudeCodeUsageReader.addDetail(&cache.detailHours, key: utcHour, provider: Self.provider,
                                                      model: model, delta: tc, cost: cost, cacheSavings: cacheSavings,
                                                      cacheWrite1h: 0, durationMs: durationMs)
 
@@ -320,35 +293,46 @@ final class CodexUsageReader {
         debugSqliteThreads = cache.sqliteSupplementedThreads
         debugSqliteTokens = cache.sqliteSupplementedTokens
 
-        for bucket in cache.days.values {
-            for model in bucket.tokensByModel.keys where CodexPricingTable.rate(for: model).isFallback {
-                fallbackModels.insert(model)
+        for byProvider in cache.detailHours.values {
+            for byModel in byProvider.values {
+                for model in byModel.keys where CodexPricingTable.rate(for: model).isFallback {
+                    fallbackModels.insert(model)
+                }
             }
         }
-
-        let (today, daily, models) = ClaudeCodeUsageReader.buildWindows(from: cache.days, now: now)
-        let history = ClaudeCodeUsageReader.buildHistory(from: cache.days, now: now)
-        let hourly = ClaudeCodeUsageReader.buildHourly(from: cache.hours, now: now)
-        let projects = ClaudeCodeUsageReader.buildProjects(from: cache.projectDays, tool: .codex, now: now)
-        let requests = cache.recentRequests.compactMap { $0.toContract() }
-        let hourlyDetail = ClaudeCodeUsageReader.buildDetailBuckets(from: cache.detailHours, tool: .codex) { date(forHourKey: $0) }
-        let dailyDetail = ClaudeCodeUsageReader.buildDetailBuckets(from: cache.detailDays, tool: .codex) { date(forDayKey: $0) }
-        var unsplitModels: Set<String> = []
-        for bucket in cache.days.values {
-            for (model, tc) in bucket.tokensByModel where tc.unsplit > 0 { unsplitModels.insert(model) }
+        for credit in cache.sqliteCredits.values where CodexPricingTable.rate(for: credit.model).isFallback {
+            fallbackModels.insert(credit.model)
         }
-        var pricing = models.map { Self.pricingEntry(for: $0.model, unsplit: unsplitModels.contains($0.model)) }
-        let listed = Set(models.map(\.model))
+
+        let extraEntries = cache.sqliteCredits.values.map { credit in
+            UTCHourRollup.ExtraDayEntry(
+                when: Date(timeIntervalSince1970: credit.time),
+                provider: Self.provider,
+                model: credit.model,
+                tokens: TokenCountsCodable(unsplit: credit.tokens),
+                project: credit.project)
+        }
+        let snap = UTCHourRollup.build(detailHours: cache.detailHours, projectHours: cache.projectHours,
+                                       extraDayEntries: extraEntries, tool: .codex, now: now)
+        let requests = cache.recentRequests.compactMap { $0.toContract() }
+        var unsplitModels = Set(cache.sqliteCredits.values.map(\.model))
+        for byProvider in cache.detailHours.values {
+            for byModel in byProvider.values {
+                for (model, cell) in byModel where cell.tokens.unsplit > 0 { unsplitModels.insert(model) }
+            }
+        }
+        var pricing = snap.models.map { Self.pricingEntry(for: $0.model, unsplit: unsplitModels.contains($0.model)) }
+        let listed = Set(snap.models.map(\.model))
         for model in unsplitModels.subtracting(listed).sorted() {
             pricing.append(Self.pricingEntry(for: model, unsplit: true))
         }
         let quotas = Self.buildQuotas(primary: cache.lastRateLimitPrimary, secondary: cache.lastRateLimitSecondary, now: now)
         let plan = cache.lastPlanType.flatMap { titledPlanName($0, prefix: "Codex") }
-        let blocks = UsageBlocks.summarize(hours: cache.hours, now: now)
+        let blocks = UsageBlocks.summarize(utcDetailHours: cache.detailHours, now: now)
 
-        var result = CodexLocalResult(status: .ok, today: today, daily: daily, models: models, history: history,
-                                       hourly: hourly, recentRequests: requests, projects: projects,
-                                       hourlyDetail: hourlyDetail, dailyDetail: dailyDetail, pricing: pricing, quotas: quotas,
+        var result = CodexLocalResult(status: .ok, today: snap.today, daily: snap.daily, models: snap.models, history: snap.history,
+                                       hourly: snap.hourly, recentRequests: requests, projects: snap.projects,
+                                       hourlyDetail: snap.hourlyDetail, dailyDetail: snap.dailyDetail, pricing: pricing, quotas: quotas,
                                        plan: plan, lastActivity: lastActivity, tokensPerMinute: recent.tokensPerMinute(now: now),
                                        fallbackPricedModels: fallbackModels)
         result.hasBacklog = hitBudgetCap
@@ -414,28 +398,9 @@ final class CodexUsageReader {
                 let last = (cwd as NSString).lastPathComponent
                 return last.isEmpty || last == "/" ? nil : last
             }()
-            let dayKey = localDayKey(when)
-            let tc = TokenCountsCodable(unsplit: tokens)
-            var bucket = cache.days[dayKey] ?? DayBucket()
-            bucket.tokensByModel[model] = (bucket.tokensByModel[model] ?? TokenCountsCodable()) + tc
-            bucket.requestsByModel[model, default: 0] += 1
-            bucket.requests += 1
-            cache.days[dayKey] = bucket
-            if let project {
-                var projectsForDay = cache.projectDays[dayKey] ?? [:]
-                var pb = projectsForDay[project] ?? ProjectBucket()
-                pb.tokens = pb.tokens + tc
-                pb.requests += 1
-                if pb.lastActive == nil || when > pb.lastActive! { pb.lastActive = when }
-                projectsForDay[project] = pb
-                cache.projectDays[dayKey] = projectsForDay
-            }
-            ClaudeCodeUsageReader.addDetail(&cache.detailDays, key: dayKey, provider: Self.provider,
-                                             model: model, delta: tc, cost: 0, cacheSavings: 0,
-                                             cacheWrite1h: 0, durationMs: nil)
             if cache.lastActivity == nil || when > cache.lastActivity! { cache.lastActivity = when }
             cache.sqliteCredits[id] = CodexSqliteCredit(
-                tokens: tokens, model: model, project: project, dayKey: dayKey,
+                tokens: tokens, model: model, project: project,
                 time: when.timeIntervalSince1970, rolloutPath: rollout)
             cache.sqliteSupplementedTokens += tokens
             cache.sqliteSupplementedThreads += 1
@@ -485,39 +450,8 @@ final class CodexUsageReader {
         return false
     }
 
-    /// 把先前按 sqlite 总数记上的那一笔从天账、项目、按天明细里减掉。小时桶没记过，不用动。
+    /// 文件重现磁盘时扣回统计计数；日明细在读出时由 sqliteCredits 实时折算，移出字典即自动撤销
     private static func retractSqlite(_ credit: CodexSqliteCredit, cache: inout CodexUsageCache) {
-        let tc = TokenCountsCodable(unsplit: credit.tokens)
-        if var bucket = cache.days[credit.dayKey] {
-            if let current = bucket.tokensByModel[credit.model] {
-                let next = current - tc
-                if next.total == 0 { bucket.tokensByModel.removeValue(forKey: credit.model) }
-                else { bucket.tokensByModel[credit.model] = next }
-            }
-            let reqs = (bucket.requestsByModel[credit.model] ?? 0) - 1
-            if reqs <= 0 { bucket.requestsByModel.removeValue(forKey: credit.model) }
-            else { bucket.requestsByModel[credit.model] = reqs }
-            bucket.requests -= 1
-            if bucket.requests <= 0 && bucket.tokensByModel.isEmpty {
-                cache.days.removeValue(forKey: credit.dayKey)
-            } else {
-                cache.days[credit.dayKey] = bucket
-            }
-        }
-        if let project = credit.project, var projects = cache.projectDays[credit.dayKey], var pb = projects[project] {
-            pb.tokens = pb.tokens - tc
-            pb.requests -= 1
-            if pb.requests <= 0 && pb.tokens.total == 0 {
-                projects.removeValue(forKey: project)
-            } else {
-                projects[project] = pb
-            }
-            if projects.isEmpty { cache.projectDays.removeValue(forKey: credit.dayKey) }
-            else { cache.projectDays[credit.dayKey] = projects }
-        }
-        ClaudeCodeUsageReader.subtractDetail(&cache.detailDays, key: credit.dayKey, provider: provider,
-                                               model: credit.model, delta: tc, cost: 0, cacheSavings: 0,
-                                               cacheWrite1h: 0, durationMs: nil)
         cache.sqliteSupplementedTokens -= credit.tokens
         cache.sqliteSupplementedThreads -= 1
         if cache.sqliteSupplementedTokens < 0 { cache.sqliteSupplementedTokens = 0 }
@@ -700,17 +634,18 @@ final class CodexUsageReader {
     }
 
     private func pruneOld(_ cache: inout CodexUsageCache, now: Date) {
-        let keep365 = Set(last365DayKeys(now: now))
-        for key in cache.days.keys where !keep365.contains(key) { cache.days.removeValue(forKey: key) }
-        for key in cache.detailDays.keys where !keep365.contains(key) { cache.detailDays.removeValue(forKey: key) }
+        let cutoff367 = now.addingTimeInterval(-367 * 86400)
+        pruneUTCHourBuckets(&cache.detailHours, olderThan: cutoff367)
+        pruneUTCHourBuckets(&cache.projectHours, olderThan: now.addingTimeInterval(-32 * 86400))
 
-        let keep30 = Set(last30DayKeys(now: now))
-        for key in cache.hours.keys where !keep30.contains(String(key.prefix(10))) { cache.hours.removeValue(forKey: key) }
-        for key in cache.projectDays.keys where !keep30.contains(key) { cache.projectDays.removeValue(forKey: key) }
-        for key in cache.detailHours.keys where !keep30.contains(String(key.prefix(10))) { cache.detailHours.removeValue(forKey: key) }
+        let creditCutoff = cutoff367.timeIntervalSince1970
+        for (id, credit) in Array(cache.sqliteCredits) where credit.time < creditCutoff {
+            cache.sqliteCredits.removeValue(forKey: id)
+            cache.sqliteAppliedThreadIDs.insert(id)
+        }
 
         let fm = FileManager.default
-        for key in cache.fileCursors.keys where !fm.fileExists(atPath: key) {
+        for key in Array(cache.fileCursors.keys) where !fm.fileExists(atPath: key) {
             cache.fileCursors.removeValue(forKey: key)
             cache.lastTriggerByFile.removeValue(forKey: key)
             cache.currentModelByFile.removeValue(forKey: key)

@@ -22,6 +22,8 @@ enum ClaudePricingTable {
     static let bundled: [String: ClaudeModelRate] = [
         "claude-fable-5": .init(input: 1e-05, output: 5e-05, cacheWrite5m: 1.25e-05, cacheWrite1h: 2e-05, cacheRead: 1e-06),
         "claude-fable-5-1": .init(input: 1e-05, output: 5e-05, cacheWrite5m: 1.25e-05, cacheWrite1h: 2e-05, cacheRead: 2.5e-07),
+        // 官方定价：$8 / $40 / 缓存读 $0.20 / 缓存写 5m $10 / 1h $16（每百万 token）
+        "claude-fable-5-2": .init(input: 8e-06, output: 4e-05, cacheWrite5m: 1e-05, cacheWrite1h: 1.6e-05, cacheRead: 2e-07),
         "claude-haiku-4-5": .init(input: 1e-06, output: 5e-06, cacheWrite5m: 1.25e-06, cacheWrite1h: 2e-06, cacheRead: 1e-07),
         "claude-haiku-4-5-20251001": .init(input: 1e-06, output: 5e-06, cacheWrite5m: 1.25e-06, cacheWrite1h: 2e-06, cacheRead: 1e-07),
         "claude-haiku-5-5": .init(input: 1e-07, output: 5e-07, cacheWrite5m: 1.25e-07, cacheWrite1h: 2e-07, cacheRead: 1e-08),
@@ -49,7 +51,7 @@ enum ClaudePricingTable {
         "opus": "claude-opus-5-5",
         "sonnet": "claude-sonnet-5-5",
         "haiku": "claude-haiku-5-5",
-        "fable": "claude-fable-5-1",
+        "fable": "claude-fable-5-2",
         "mythos": "claude-mythos-5-1",
     ]
 

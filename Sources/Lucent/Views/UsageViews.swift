@@ -84,6 +84,65 @@ enum UsageFmt {
         case .ok: return nil
         }
     }
+
+    /// Gemini / orchestrator / Claude / Grok 模型 ID 转短名（卡片与列表节省横向空间），其他厂商原样保留
+    static func modelName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        enum Family { case gemini, orchestrator, claude, grok }
+        let family: Family
+        let body: String
+        if lower.hasPrefix("gemini-") {
+            family = .gemini
+            body = String(lower.dropFirst("gemini-".count))
+        } else if lower.hasPrefix("orchestrator-") {
+            family = .orchestrator
+            body = lower
+        } else if lower.hasPrefix("claude-") {
+            family = .claude
+            body = String(lower.dropFirst("claude-".count))
+        } else if lower.hasPrefix("grok-") {
+            family = .grok
+            body = lower
+        } else {
+            return raw
+        }
+
+        var parts = body.split(separator: "-").map(String.init)
+        guard !parts.isEmpty else { return raw }
+
+        // 仅当 Gemini 首位为纯数字大版本且后接非通用档位（flash/pro 等）的代号时省略版本号
+        let genericTiers: Set<String> = ["flash", "pro", "ultra", "nano"]
+        if family == .gemini, parts.count >= 2,
+           parts[0].allSatisfy(\.isNumber),
+           !genericTiers.contains(parts[1]) {
+            parts.removeFirst()
+        }
+
+        // Claude 尾部 8 位发布日期戳（如 20250929）在短名中省略，完整 ID 仍在悬停提示里
+        if family == .claude, parts.count >= 2,
+           let last = parts.last,
+           last.count == 8, last.allSatisfy(\.isNumber), last.hasPrefix("20") {
+            parts.removeLast()
+        }
+
+        // 相邻短纯数字版本号合并为小数点形式（如 ["5", "5"] → "5.5"）
+        var merged: [String] = []
+        for token in parts {
+            if token.count <= 2, token.allSatisfy(\.isNumber),
+               let prev = merged.last, prev.count <= 2, prev.allSatisfy(\.isNumber) {
+                merged[merged.count - 1] = "\(prev).\(token)"
+            } else {
+                merged.append(token)
+            }
+        }
+
+        let modifiers: Set<String> = ["xhigh", "high", "medium", "low", "minimal", "thinking", "tiered", "preview"]
+        return merged.map { token in
+            if token.first?.isNumber == true || modifiers.contains(token) { return token }
+            return token.prefix(1).uppercased() + token.dropFirst()
+        }.joined(separator: " ")
+    }
 }
 
 extension ToolUsage {
@@ -262,6 +321,7 @@ struct UsageCardRows: View {
             .help(L("\(q.title) 已用 \(Fmt.percent(q.usedFraction))") + (UsageFmt.reset(q.resetsAt).map { " · \($0)" } ?? ""))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(L("\(q.title) 已用 \(Fmt.percent(q.usedFraction))"))
+            .accessibilityValue(UsageFmt.reset(q.resetsAt) ?? "")
         } else if let b = u.liveBlock {
             BlockCompact(usage: u, block: b)
         } else if u.tool == .claude && u.status != .notInstalled {
@@ -286,22 +346,89 @@ struct UsageOverviewTab: View {
     let tools: [ToolUsage]
 
     var body: some View {
-        VStack(spacing: 14) {
-            RatioRow(ratio: 1.37, spacing: 14, fill: true) {
-                UsageTrendPanel(store: store, tools: tools)
-                QuotaPanel(store: store, tools: tools)
-            }
-            .frame(minHeight: 268)
-            // 下排按内容收高，多出来的高度让给上面的趋势图，不留半截空面板
-            HStack(alignment: .top, spacing: 14) {
-                if tools.count == 1, let only = tools.first {
-                    ToolUsagePanel(usage: only, solo: true)
-                } else {
-                    ForEach(tools) { ToolUsagePanel(usage: $0) }
+        // 整页共用一个纵向 ScrollView（系统默认滚动条）；上排至少保留改版前完整显示额度面板的高度，一行放得下时继续吃满剩余高度
+        GeometryReader { g in
+            ScrollView {
+                OverviewStack(viewportHeight: g.size.height, topMinHeight: 350, spacing: 14) {
+                    RatioRow(ratio: 1.37, spacing: 14, fill: true) {
+                        UsageTrendPanel(store: store, tools: tools)
+                        QuotaPanel(store: store, tools: tools)
+                    }
+                    AdaptiveCardGrid(minItemWidth: 268, spacing: 14) {
+                        if tools.count == 1, let only = tools.first {
+                            ToolUsagePanel(usage: only, solo: true)
+                        } else {
+                            ForEach(tools) { ToolUsagePanel(usage: $0) }
+                        }
+                    }
                 }
+                .frame(width: g.size.width)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// 总览页上下两段排布：下排占自然高度，剩余视口高度让给上排（至少保留 topMinHeight，超出时交由外层 ScrollView 滚动）
+private struct OverviewStack: Layout {
+    var viewportHeight: CGFloat
+    var topMinHeight: CGFloat
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? 900
+        let bottomH = subviews.count > 1 ? subviews[1].sizeThatFits(.init(width: w, height: nil)).height : 0
+        let gap = bottomH > 0 ? spacing : 0
+        let topH = max(topMinHeight, viewportHeight - gap - bottomH)
+        return CGSize(width: w, height: topH + gap + bottomH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let w = bounds.width
+        let bottomH = subviews.count > 1 ? subviews[1].sizeThatFits(.init(width: w, height: nil)).height : 0
+        let gap = bottomH > 0 ? spacing : 0
+        let topH = max(topMinHeight, bounds.height - gap - bottomH)
+        subviews[0].place(at: bounds.origin, proposal: .init(width: w, height: topH))
+        if subviews.count > 1 && bottomH > 0 {
+            subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + topH + gap),
+                              proposal: .init(width: w, height: bottomH))
+        }
+    }
+}
+
+/// 自适应卡片网格：每张卡至少 minItemWidth 宽、放不下就换行，所有卡片等宽等高且不横向溢出
+private struct AdaptiveCardGrid: Layout {
+    var minItemWidth: CGFloat = 268
+    var spacing: CGFloat = 14
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? 900
+        let m = metrics(width: w, subviews: subviews)
+        return CGSize(width: w, height: m.totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let m = metrics(width: bounds.width, subviews: subviews)
+        guard m.cols > 0 else { return }
+        for (index, subview) in subviews.enumerated() {
+            let row = index / m.cols
+            let col = index % m.cols
+            let x = bounds.minX + CGFloat(col) * (m.itemWidth + spacing)
+            let y = bounds.minY + CGFloat(row) * (m.itemHeight + spacing)
+            subview.place(at: CGPoint(x: x, y: y), proposal: .init(width: m.itemWidth, height: m.itemHeight))
+        }
+    }
+
+    private func metrics(width: CGFloat, subviews: Subviews) -> (cols: Int, itemWidth: CGFloat, itemHeight: CGFloat, totalHeight: CGFloat) {
+        let count = subviews.count
+        guard count > 0 else { return (0, 0, 0, 0) }
+        let maxCols = max(1, Int((width + spacing) / (minItemWidth + spacing)))
+        let cols = min(count, maxCols)
+        let itemWidth = max((width - spacing * CGFloat(cols - 1)) / CGFloat(cols), 0)
+        let itemHeight = subviews.map { $0.sizeThatFits(.init(width: itemWidth, height: nil)).height }.max() ?? 0
+        let rows = (count + cols - 1) / cols
+        let totalHeight = CGFloat(rows) * itemHeight + CGFloat(max(rows - 1, 0)) * spacing
+        return (cols, itemWidth, itemHeight, totalHeight)
     }
 }
 
@@ -343,20 +470,95 @@ private struct UsageTrendPanel: View {
                 }, baseline: h - 4, period: 5.4)
             }
             .frame(maxHeight: .infinity)
-            HStack(spacing: 16) {
+            trendLegend(withDaily)
+                .font(.system(size: 11.5))
+        }
+    }
+
+    @ViewBuilder
+    private func trendLegend(_ withDaily: [ToolUsage]) -> some View {
+        let dateNote = Text(L("30 天前 → 今天"))
+            .font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.tertiary)
+            .lineLimit(1).fixedSize()
+        // 先试单行平铺；放不下时把数值放到名字下面，并整项换行避免工具名在词中间断行
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
                 ForEach(Array(withDaily.enumerated()), id: \.element.id) { i, u in
-                    HStack(spacing: 6) {
-                        Capsule().fill(i == 0 ? Theme.accent : Theme.dim(0.5)).frame(width: 12, height: 2)
-                            .shadow(color: i == 0 ? Theme.accent : .clear, radius: 3)
-                        Text(u.tool.title)
-                        Text(UsageFmt.tokens(u.last30Tokens.total)).foregroundStyle(Theme.secondary).monospacedDigit()
+                    legendItem(index: i, usage: u, stacked: false)
+                }
+                Spacer(minLength: 8)
+                dateNote
+            }
+            HStack(alignment: .bottom, spacing: 12) {
+                FlowLayout(spacing: 14, rowSpacing: 6) {
+                    ForEach(Array(withDaily.enumerated()), id: \.element.id) { i, u in
+                        legendItem(index: i, usage: u, stacked: true)
                     }
                 }
-                Spacer()
-                Text(L("30 天前 → 今天")).font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                dateNote
             }
-            .font(.system(size: 11.5))
         }
+    }
+
+    private func legendItem(index i: Int, usage u: ToolUsage, stacked: Bool) -> some View {
+        let swatch = Capsule().fill(i == 0 ? Theme.accent : Theme.dim(0.5)).frame(width: 12, height: 2)
+            .shadow(color: i == 0 ? Theme.accent : .clear, radius: 3)
+        let title = Text(u.tool.title).lineLimit(1)
+        let value = Text(UsageFmt.tokens(u.last30Tokens.total)).foregroundStyle(Theme.secondary).monospacedDigit().lineLimit(1)
+        return Group {
+            if stacked {
+                HStack(alignment: .top, spacing: 6) {
+                    swatch.padding(.top, 6)
+                    VStack(alignment: .leading, spacing: 1) {
+                        title
+                        value
+                    }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    swatch
+                    title
+                    value
+                }
+            }
+        }
+        .fixedSize()
+    }
+}
+
+/// 水平流式排布：子视图保持各自完整宽度，行尾放不下时整项换到下一行
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 14
+    var rowSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(maxWidth: proposal.width ?? .infinity, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = arrange(maxWidth: bounds.width, subviews: subviews)
+        for (subview, origin) in zip(subviews, layout.origins) {
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrange(maxWidth: CGFloat, subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + rowSpacing
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            maxX = max(maxX, x - spacing)
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (CGSize(width: maxX, height: y + rowHeight), origins)
     }
 }
 
@@ -442,7 +644,7 @@ private struct QuotaPanel: View {
                                     Text(UsageFmt.ago(e.updated)).font(.system(size: 11)).foregroundStyle(Theme.tertiary)
                                 }
                             }
-                            ForEach(e.quotas) { QuotaRow(quota: $0) }
+                            ForEach(visibleQuotas(e.quotas)) { QuotaRow(quota: $0) }
                             if let u = e.estimate { EstimateRow(usage: u) }
                             if let note = e.note {
                                 Text(note).font(.system(size: 11.5))
@@ -457,6 +659,18 @@ private struct QuotaPanel: View {
             // 内容多时底部淡出，不留被切一半的字
             .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
                                          .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+        }
+    }
+
+    /// 第三方 5h / 第三方每周在已用 0% 时隐藏，避免把下方额度挤进渐隐区；Gemini 两行始终保留
+    private func visibleQuotas(_ quotas: [QuotaWindow]) -> [QuotaWindow] {
+        quotas.filter { q in
+            switch q.kind {
+            case .thirdPartyFiveHour, .thirdPartyWeekly:
+                return Int((q.usedFraction * 100).rounded()) > 0
+            default:
+                return true
+            }
         }
     }
 }
@@ -572,7 +786,8 @@ struct QuotaRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L("\(q.title)，已用 \(Fmt.percent(q.usedFraction))") + (sub.isEmpty ? "" : L("，\(sub)")))
+        .accessibilityLabel(L("\(q.title)，已用 \(Fmt.percent(q.usedFraction))"))
+        .accessibilityValue(sub)
     }
 }
 
@@ -602,18 +817,23 @@ private struct ToolUsagePanel: View {
         let u = usage
         let t30 = u.last30Tokens
         let hasNumbers = u.hasDaily || u.last30Cost > 0 || u.today.cost > 0
+        let hasBody = hasNumbers || !u.models.isEmpty
         Panel {
             HStack(spacing: 8) {
                 ActivityDot(active: u.isActive, problem: u.isProblem)
                 Eyebrow(u.tool.title.uppercased())
-                Spacer()
-                if let plan = u.plan { Text(plan).font(.system(size: 11.5)).foregroundStyle(Theme.secondary) }
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if let plan = u.plan {
+                    Text(plan).font(.system(size: 11.5)).foregroundStyle(Theme.secondary).lineLimit(1)
+                }
                 InfoTip(L("\(u.tool.sourceNote) · 金额\(UsageFmt.costNote(u.costKind))"))
             }
             if u.status == .notInstalled {
-                Text(L("本机没有找到 \(u.tool.title) 的记录")).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
-            } else if !hasNumbers && u.models.isEmpty {
-                Text(L("还没有用量记录")).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
+                statusMessage(L("本机没有找到 \(u.tool.title) 的记录"),
+                              hint: L("安装并用过一次后会自动显示"))
+            } else if !hasBody {
+                emptyOrProblemBody(u)
             } else if solo {
                 HStack(alignment: .top, spacing: 40) {
                     if u.hasDaily { column(L("近 30 天构成")) { breakdown(t30) } }
@@ -634,11 +854,41 @@ private struct ToolUsagePanel: View {
                         .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
                 }
             }
-            if u.status != .notInstalled {
+            if hasBody && u.isProblem, let note = UsageFmt.statusNote(u.status) {
                 Spacer(minLength: 0)
-                if u.isProblem, let note = UsageFmt.statusNote(u.status) {
-                    Text(note).font(.system(size: 11)).foregroundStyle(Theme.heat).fixedSize(horizontal: false, vertical: true)
-                }
+                Text(note).font(.system(size: 11)).foregroundStyle(Theme.heat).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func emptyOrProblemBody(_ u: ToolUsage) -> some View {
+        switch u.status {
+        case .loading:
+            statusMessage(L("正在读取用量记录…"))
+        case let .partial(reason):
+            // 无数据时优先显示真实异常（与额度面板一致），不误报“还没有用量记录”；按状态枚举和工具给操作指引，不比较 L() 结果
+            let hint = u.tool == .cursor ? L("打开 Cursor 保持登录，或稍后点右上角刷新") : nil
+            statusMessage(reason, hint: hint, isError: true)
+        case let .failed(reason):
+            let hint = u.tool == .cursor ? L("在 Cursor 里登录后点右上角刷新") : L("请稍后点右上角刷新重试")
+            statusMessage(reason, hint: hint, isError: true)
+        case .ok, .notInstalled:
+            statusMessage(L("还没有用量记录"), hint: L("用过 \(u.tool.title) 后会自动显示"))
+        }
+    }
+
+    private func statusMessage(_ text: String, hint: String? = nil, isError: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(isError ? Theme.heat : Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let hint {
+                Text(hint)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -663,11 +913,14 @@ private struct ToolUsagePanel: View {
     private func models(_ u: ToolUsage, limit: Int) -> some View {
         VStack(spacing: 5) {
             ForEach(u.models.prefix(limit)) { m in
-                HStack {
-                    Text(m.model).lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    Text(UsageFmt.tokens(m.tokens)).foregroundStyle(Theme.secondary)
-                    if m.cost > 0 { Text(UsageFmt.cost(m.cost)).frame(minWidth: 56, alignment: .trailing) }
+                HStack(spacing: 6) {
+                    Text(UsageFmt.modelName(m.model)).lineLimit(1).truncationMode(.middle)
+                        .help(m.model)
+                    Spacer(minLength: 4)
+                    Text(UsageFmt.tokens(m.tokens)).foregroundStyle(Theme.secondary).fixedSize()
+                    if m.cost > 0 {
+                        Text(UsageFmt.cost(m.cost)).fixedSize().frame(minWidth: 52, alignment: .trailing)
+                    }
                 }
             }
         }

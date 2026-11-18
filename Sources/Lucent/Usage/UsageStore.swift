@@ -61,6 +61,8 @@ final class UsageStore {
             case .cursor: u.costKind = .billed
             case .opencode: u.costKind = .recorded
             case .codex: u.costKind = .apiEquivalent
+            case .agy: u.costKind = .apiEquivalent
+            case .grokbuild: u.costKind = .apiEquivalent
             }
             return u
         }
@@ -244,7 +246,7 @@ final class UsageStore {
             }
         }
         guard visible else { return }
-        for tool in [AITool.cursor] where enabledTools.contains(tool) {
+        for tool in AITool.allCases where tool.hasQuota && enabledTools.contains(tool) {
             let interval = quotaBackoff[tool] ?? Self.baseQuotaInterval
             let last = lastQuotaRefresh[tool] ?? .distantPast
             if now.timeIntervalSince(last) >= interval {
@@ -259,7 +261,7 @@ final class UsageStore {
 
     private func maybeRefreshQuotas(force: Bool, staleAfter: TimeInterval) async {
         let now = Date()
-        for tool in [AITool.cursor] where enabledTools.contains(tool) {
+        for tool in AITool.allCases where tool.hasQuota && enabledTools.contains(tool) {
             let last = lastQuotaRefresh[tool] ?? .distantPast
             if force || now.timeIntervalSince(last) > staleAfter {
                 await refreshQuota(tool, force: force)
@@ -283,6 +285,14 @@ final class UsageStore {
             let result = await Task(priority: .utility) { await self.worker.scanOpenCodeLocal() }.value
             applyOpenCodeLocal(result)
             if result.hasBacklog { catchUpSoon(.opencode) }
+        case .agy:
+            let result = await Task(priority: .utility) { await self.worker.scanAntigravityLocal() }.value
+            applyAntigravityLocal(result)
+            if result.hasBacklog { catchUpSoon(.agy) }
+        case .grokbuild:
+            let result = await Task(priority: .utility) { await self.worker.scanGrokBuildLocal() }.value
+            applyGrokBuildLocal(result)
+            if result.hasBacklog { catchUpSoon(.grokbuild) }
         }
     }
 
@@ -429,6 +439,48 @@ final class UsageStore {
         recomputeStatus(.opencode)
     }
 
+    private func applyAntigravityLocal(_ result: AntigravityLocalResult) {
+        let i = idx(.agy)
+        tools[i].today = result.today
+        tools[i].daily = result.daily
+        tools[i].models = result.models
+        tools[i].history = result.history
+        tools[i].hourly = result.hourly
+        tools[i].recentRequests = result.recentRequests
+        tools[i].projects = result.projects
+        tools[i].hourlyDetail = result.hourlyDetail
+        tools[i].dailyDetail = result.dailyDetail
+        tools[i].pricing = result.pricing
+        tools[i].lastActivity = result.lastActivity
+        tools[i].tokensPerMinute = result.tokensPerMinute
+        tools[i].currentBlock = result.currentBlock
+        tools[i].recentBlocks = result.recentBlocks
+        tools[i].peakBlockTokens = result.peakBlockTokens
+        localStatus[.agy] = result.status
+        recomputeStatus(.agy)
+    }
+
+    private func applyGrokBuildLocal(_ result: GrokBuildLocalResult) {
+        let i = idx(.grokbuild)
+        tools[i].today = result.today
+        tools[i].daily = result.daily
+        tools[i].models = result.models
+        tools[i].history = result.history
+        tools[i].hourly = result.hourly
+        tools[i].recentRequests = result.recentRequests
+        tools[i].projects = result.projects
+        tools[i].hourlyDetail = result.hourlyDetail
+        tools[i].dailyDetail = result.dailyDetail
+        tools[i].pricing = result.pricing
+        tools[i].lastActivity = result.lastActivity
+        tools[i].tokensPerMinute = result.tokensPerMinute
+        tools[i].currentBlock = result.currentBlock
+        tools[i].recentBlocks = result.recentBlocks
+        tools[i].peakBlockTokens = result.peakBlockTokens
+        localStatus[.grokbuild] = result.status
+        recomputeStatus(.grokbuild)
+    }
+
     private func refreshCursorLocal() async {
         vaultRecords = AccountVault.loadAll()
         guard await worker.isCursorInstalled else {
@@ -468,10 +520,17 @@ final class UsageStore {
     private func refreshQuota(_ tool: AITool, force: Bool) async {
         lastQuotaRefresh[tool] = Date()
         switch tool {
-        case .claude, .opencode, .codex:
-            break // Claude 不读凭据、不查额度；OpenCode 没有额度接口；Codex 的额度从本机日志里读，不联网
+        case .claude, .opencode, .codex, .grokbuild:
+            break // Claude 不读凭据、不查额度；OpenCode / Grok Build 没有额度接口；Codex 的额度从本机日志里读，不联网
         case .cursor:
             await refreshCursorQuotas(force: force)
+        case .agy:
+            #if DEBUG
+            if CommandLine.arguments.contains("--usage-dump") && !CommandLine.arguments.contains("--agy-quota-dump") { break }
+            #endif
+            guard localStatus[.agy] != .notInstalled else { break }
+            let result = await worker.fetchAntigravityQuota()
+            applyAntigravityQuota(result)
         }
     }
 
@@ -685,6 +744,20 @@ final class UsageStore {
         recomputeStatus(.cursor)
     }
 
+    private func applyAntigravityQuota(_ result: AntigravityQuotaResult) {
+        let i = idx(.agy)
+        if let reason = result.failureReason {
+            quotaFailureReason[.agy] = reason
+            quotaBackoff[.agy] = min((quotaBackoff[.agy] ?? Self.baseQuotaInterval) * 2, Self.maxQuotaInterval)
+        } else {
+            quotaFailureReason.removeValue(forKey: .agy)
+            quotaBackoff[.agy] = nil
+            tools[i].quotas = result.quotas
+            tools[i].quotaUpdatedAt = Date()
+        }
+        recomputeStatus(.agy)
+    }
+
     // MARK: 状态合成
 
     private func recomputeStatus(_ tool: AITool) {
@@ -744,7 +817,7 @@ final class UsageStore {
     func debugOpenCodeZeroCostProviders() async -> Set<String> { await worker.openCodeZeroCostProviders }
     func debugClaudeOutputDedupe() async -> (before: Int64, after: Int64) { await worker.debugClaudeOutputDedupe() }
     func debugCodexSqliteBackfill() async -> (threads: Int, tokens: Int64) { await worker.debugCodexSqliteBackfill() }
-    func debugBacklog() async -> (claude: Bool, opencode: Bool, codex: Bool) { await worker.debugBacklog() }
+    func debugBacklog() async -> (claude: Bool, opencode: Bool, codex: Bool, agy: Bool, grokbuild: Bool) { await worker.debugBacklog() }
 
     func debugRefreshCursorIdentity() async {
         visible = true

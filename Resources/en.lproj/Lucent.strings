@@ -279,6 +279,7 @@
 "缓存命中率" = "Cache Hit Rate";
 "缓存省下 {0}" = "Cache saved {0}";
 "全部{0}" = "All {0}s";
+"全部工具" = "All Tools";
 "输入" = "Input";
 "输出" = "Output";
 "缓存读" = "Cache read";
@@ -406,9 +407,30 @@
 "相当于近 30 天最大窗口（{0}）的 {1}" = "{1} of your largest window in the last 30 days ({0})";
 "点击查看 Claude 的官方额度" = "Click to see your official quota in Claude";
 "{0}，已用 {1}" = "{0}, {1} used";
-"，{0}" = ", {0}";
 "{0} · 金额{1}" = "{0} · cost {1}";
 "本机没有找到 {0} 的记录" = "No {0} logs found on this Mac";
+"安装并用过一次后会自动显示" = "Appears automatically after you install and use it once";
 "还没有用量记录" = "No usage recorded yet";
+"用过 {0} 后会自动显示" = "Appears automatically after you use {0}";
+"正在读取用量记录…" = "Loading usage logs…";
+"请稍后点右上角刷新重试" = "Click Refresh above to try again later";
+"打开 Cursor 保持登录，或稍后点右上角刷新" = "Keep Cursor open and signed in, or click Refresh above later";
+"在 Cursor 里登录后点右上角刷新" = "Sign in to Cursor, then click Refresh above";
 "近 30 天构成" = "Last 30 days mix";
 "近 30 天" = "Last 30 days";
+
+/* Antigravity */
+"Gemini 5h" = "Gemini 5h";
+"Gemini 每周" = "Gemini Wk";
+"第三方 5h" = "3P 5h";
+"第三方每周" = "3P Weekly";
+"模型未知，金额记 $0" = "Unknown model, cost counted as $0";
+"暂无公开 API 定价" = "No public API price";
+"未找到 agy 命令行，无法读取额度" = "agy CLI not found. Can't read quota.";
+"无法启动 agy 读取额度" = "Failed to start agy to read quota";
+"Antigravity 额度查询超时" = "Antigravity quota query timed out";
+"Antigravity 没返回可识别的额度，请先运行 agy 登录" = "Antigravity did not return quota. Sign in with agy and try again.";
+
+/* Grok Build */
+"命令行 · 本机记录" = "CLI · local logs";
+"Grok CLI 自带记录" = "Recorded by Grok CLI";

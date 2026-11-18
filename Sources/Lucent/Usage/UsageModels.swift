@@ -5,7 +5,7 @@ import Foundation
 
 /// 统计哪些工具。Claude Code 的命令行和桌面版写同一份 ~/.claude/projects，合成一项；Cursor 桌面版和命令行是同一个账号，也合成一项。
 enum AITool: String, CaseIterable, Identifiable, Sendable {
-    case claude, cursor, opencode, codex
+    case claude, cursor, opencode, codex, agy, grokbuild
     var id: String { rawValue }
 
     var title: String {
@@ -14,6 +14,8 @@ enum AITool: String, CaseIterable, Identifiable, Sendable {
         case .cursor: return "Cursor"
         case .opencode: return "OpenCode"
         case .codex: return "Codex"
+        case .agy: return "Antigravity"
+        case .grokbuild: return "Grok Build"
         }
     }
 
@@ -24,6 +26,8 @@ enum AITool: String, CaseIterable, Identifiable, Sendable {
         case .cursor: return "Cursor"
         case .opencode: return "OpenCode"
         case .codex: return "Codex"
+        case .agy: return "Antigravity"
+        case .grokbuild: return "Grok Build"
         }
     }
 
@@ -31,9 +35,9 @@ enum AITool: String, CaseIterable, Identifiable, Sendable {
     /// 有逐条记录（请求日志、热力图、按模型）：Claude / Codex / OpenCode 读本机，Cursor 10-24 起从 cursor.com 拉逐条用量
     var hasLocalLogs: Bool { true }
 
-    /// Lucent 自己去查订阅额度的（只有 Cursor）。
+    /// Lucent 自己去查订阅额度的（Cursor、Antigravity）。
     /// Claude 不读任何凭据（官方条款不允许第三方收集会话令牌），额度只给“打开用量页”按钮；OpenCode 用自己的 API key，没有额度
-    var hasQuota: Bool { self == .cursor }
+    var hasQuota: Bool { self == .cursor || self == .agy }
 
     /// 数据来源的一句话说明，显示在主窗口
     var sourceNote: String {
@@ -42,6 +46,8 @@ enum AITool: String, CaseIterable, Identifiable, Sendable {
         case .cursor: return L("桌面版 + 命令行 · 账号用量")
         case .opencode: return L("本机记录")
         case .codex: return L("命令行 + 桌面版 · 本机记录")
+        case .agy: return L("命令行 + 桌面版 · 本机记录")
+        case .grokbuild: return L("命令行 · 本机记录")
         }
     }
 }
@@ -212,6 +218,7 @@ struct QuotaWindow: Sendable, Identifiable, Equatable {
         case hours(Int), days(Int)   // 按时长滚动的窗口
         case fiveHour, weekly        // 厂商没给时长时，按主 / 次窗口的常见含义
         case total, cursorModels, apiModels
+        case geminiFiveHour, geminiWeekly, thirdPartyFiveHour, thirdPartyWeekly
     }
 
     var id: String           // 稳定 id，例如 "five_hour"
@@ -232,6 +239,10 @@ struct QuotaWindow: Sendable, Identifiable, Equatable {
         case .total: return L("总计")
         case .cursorModels: return "Cursor"
         case .apiModels: return L("第三方模型")
+        case .geminiFiveHour: return L("Gemini 5h")
+        case .geminiWeekly: return L("Gemini 每周")
+        case .thirdPartyFiveHour: return L("第三方 5h")
+        case .thirdPartyWeekly: return L("第三方每周")
         }
     }
 

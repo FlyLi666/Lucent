@@ -8,6 +8,9 @@ actor UsageWorker {
     private let cursorReader = CursorUsageReader()
     private let openCodeReader = OpenCodeUsageReader()
     private var codexReaders: [String: CodexUsageReader] = [:]
+    private let agyReader = AntigravityUsageReader()
+    private let agyQuotaReader = AntigravityQuotaReader()
+    private let grokBuildReader = GrokBuildUsageReader()
 
     /// 调试harness用：记录哪些型号是按家族回退定价的，供 --usage-dump 打印
     private(set) var fallbackPricedModels: Set<String> = []
@@ -16,6 +19,8 @@ actor UsageWorker {
     private var claudeBacklog = false
     private var opencodeBacklog = false
     private var codexBacklog = false
+    private var agyBacklog = false
+    private var grokBuildBacklog = false
     private var cursorLogs: [String: CursorEventLog] = [:]
     private(set) var cursorEventRequests = 0
     private(set) var cursorPeakFootprint: UInt64 = 0
@@ -104,6 +109,26 @@ actor UsageWorker {
         return result
     }
 
+    // MARK: Antigravity
+
+    func scanAntigravityLocal() -> AntigravityLocalResult {
+        let result = agyReader.scan()
+        agyBacklog = result.hasBacklog
+        return result
+    }
+
+    func fetchAntigravityQuota() async -> AntigravityQuotaResult {
+        await agyQuotaReader.fetchQuota()
+    }
+
+    // MARK: Grok Build
+
+    func scanGrokBuildLocal() -> GrokBuildLocalResult {
+        let result = grokBuildReader.scan()
+        grokBuildBacklog = result.hasBacklog
+        return result
+    }
+
     func debugClaudeOutputDedupe() -> (before: Int64, after: Int64) {
         var before: Int64 = 0
         var after: Int64 = 0
@@ -124,7 +149,7 @@ actor UsageWorker {
         return (threads, tokens)
     }
 
-    func debugBacklog() -> (claude: Bool, opencode: Bool, codex: Bool) {
-        (claudeBacklog, opencodeBacklog, codexBacklog)
+    func debugBacklog() -> (claude: Bool, opencode: Bool, codex: Bool, agy: Bool, grokbuild: Bool) {
+        (claudeBacklog, opencodeBacklog, codexBacklog, agyBacklog, grokBuildBacklog)
     }
 }

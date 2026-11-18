@@ -14,6 +14,14 @@ enum LucentMain {
             RunLoop.main.run()
             return
         }
+        if CommandLine.arguments.contains("--agy-quota-parse") || CommandLine.arguments.contains("--agy-quota-dump") {
+            Task { @MainActor in
+                let code = await UsageDebugDump.runAgyQuotaCLI()
+                exit(code)
+            }
+            RunLoop.main.run()
+            return
+        }
         if CommandLine.arguments.contains("--usage-dump") {
             Task { @MainActor in
                 await UsageDebugDump.run()

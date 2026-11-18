@@ -17,6 +17,8 @@ final class ClaudePriorStore {
         var savings: Double
         var durationMs: Int32
         var main: Bool
+        /// 是否已见到带 stop_reason 的完结块：防止分叉重放的未完结块或同值副本覆盖原记录
+        var hasStopReason: Bool = false
         var model: String
         var project: String?
         var sessionID: String?
@@ -26,11 +28,14 @@ final class ClaudePriorStore {
         }
     }
 
+    private static let formatVersion: UInt32 = 2
     private(set) var byID: [String: Rec] = [:]
-    /// 30 天窗口滑走之后，记录本身可以丢，但主链 id 还得留着，免得 sidechain 回放被当成新请求
+    /// 30 天窗口滑走之后，记录本身可以丢，但主链 id 还得留着，免得 sidechain 或分叉回放被当成新请求
     private(set) var settledMainIDs: Set<String> = []
 
     func rec(_ id: String) -> Rec? { byID[id] }
+
+    func isSettledMain(_ id: String) -> Bool { settledMainIDs.contains(id) }
 
     func containsMain(_ id: String) -> Bool {
         if settledMainIDs.contains(id) { return true }
@@ -78,7 +83,7 @@ final class ClaudePriorStore {
         var data = Data()
         data.reserveCapacity(strings.count * 24 + records.count * 96 + 64)
         appendU32(0x4C43_5052, to: &data) // "LCPR"
-        appendU32(1, to: &data)
+        appendU32(Self.formatVersion, to: &data)
         appendU32(UInt32(strings.count), to: &data)
         for s in strings {
             let bytes = Array(s.utf8)
@@ -101,7 +106,8 @@ final class ClaudePriorStore {
             appendU64(rec.cost.bitPattern, to: &data)
             appendU64(rec.savings.bitPattern, to: &data)
             appendI32(rec.durationMs, to: &data)
-            data.append(rec.main ? 1 : 0)
+            let flags: UInt8 = (rec.main ? 1 : 0) | (rec.hasStopReason ? 2 : 0)
+            data.append(flags)
         }
         appendU32(UInt32(settledIdx.count), to: &data)
         for idx in settledIdx { appendU32(idx, to: &data) }
@@ -116,7 +122,7 @@ final class ClaudePriorStore {
     static func load(from url: URL) -> ClaudePriorStore? {
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         var offset = 0
-        guard readU32(data, &offset) == 0x4C43_5052, readU32(data, &offset) == 1 else { return nil }
+        guard readU32(data, &offset) == 0x4C43_5052, readU32(data, &offset) == Self.formatVersion else { return nil }
         guard let stringCount = readU32(data, &offset), stringCount < 5_000_000 else { return nil }
         var strings: [String] = []
         strings.reserveCapacity(Int(stringCount))
@@ -151,13 +157,13 @@ final class ClaudePriorStore {
                   let id = str(idIdx),
                   let model = str(modelIdx)
             else { return nil }
-            let main = data[data.index(data.startIndex, offsetBy: offset)] == 1
+            let flags = data[data.index(data.startIndex, offsetBy: offset)]
             offset += 1
             store.byID[id] = Rec(
                 time: Double(bitPattern: timeBits),
                 input: input, output: output, cacheRead: cacheRead, write5m: write5m, write1h: write1h,
                 cost: Double(bitPattern: costBits), savings: Double(bitPattern: savingsBits),
-                durationMs: durationMs, main: main, model: model,
+                durationMs: durationMs, main: (flags & 1) != 0, hasStopReason: (flags & 2) != 0, model: model,
                 project: str(projectIdx), sessionID: str(sessionIdx))
         }
         if let settledCount = readU32(data, &offset), settledCount < 5_000_000 {

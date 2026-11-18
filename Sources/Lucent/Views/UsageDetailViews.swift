@@ -17,7 +17,7 @@ enum UsageTab: String, CaseIterable, Identifiable {
 
 /// 只看哪个工具
 enum UsageFilter: String, CaseIterable, Identifiable {
-    case all, claude, cursor, opencode, codex
+    case all, claude, cursor, opencode, codex, agy, grokbuild
     var id: String { rawValue }
     var tool: AITool? { AITool(rawValue: rawValue) }
     var title: String { tool?.title ?? L("全部") }
@@ -97,7 +97,7 @@ enum UsageMetric: String, CaseIterable, Identifiable {
 extension ToolUsage {
     /// 有本机记录的工具读完了却一条记录都没有（例如装了 Codex 但没用过）
     var isEmptyLocal: Bool {
-        tool.hasLocalLogs && status == .ok && dailyDetail.isEmpty && recentRequests.isEmpty
+        tool.hasLocalLogs && status == .ok && quotas.isEmpty && dailyDetail.isEmpty && recentRequests.isEmpty
             && !history.contains { $0.tokens.total > 0 } && !daily.contains { $0.tokens.total > 0 }
     }
 }
@@ -135,6 +135,8 @@ struct Segmented<T: Hashable>: View {
                     Text(title)
                         .font(.system(size: compact ? 11.5 : 12.5, weight: on ? .semibold : .regular))
                         .foregroundStyle(on ? .white : Theme.dim(0.84))
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, compact ? 10 : 14)
                         .frame(height: compact ? 24 : 30)
                         .background {
@@ -245,6 +247,25 @@ enum UsageData {
 
 // MARK: - 共用
 
+/// 筛选下拉菜单的统一按钮外观（工具在窄处退化时、供应商、模型共用）
+struct FilterMenuLabel: View {
+    let text: String
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(text).lineLimit(1)
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+        }
+        .font(.system(size: 11.5, weight: isActive ? .semibold : .regular))
+        .foregroundStyle(isActive ? .white : Theme.dim(0.84))
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(.white.opacity(isActive ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
+    }
+}
+
 /// 整页的工具筛选：每个页签都放在内容左上角同一个位置。只有一个工具时没得选，不出现
 struct ToolFilter: View {
     @Binding var filter: UsageFilter
@@ -253,7 +274,27 @@ struct ToolFilter: View {
         let tools = UsageData.tools(UsageStore.shared)
         let options = UsageFilter.options(tools)
         if options.count > 2 {
-            Segmented(items: options, selection: Binding(get: { filter.effective(tools) }, set: { filter = $0 }), compact: true)
+            let effective = filter.effective(tools)
+            let binding = Binding(get: { effective }, set: { filter = $0 })
+            // 空间足够时放整排分段按钮（全名不截断）；放不下时退成和供应商/模型相同的下拉菜单
+            ViewThatFits(in: .horizontal) {
+                Segmented(items: options, selection: binding, compact: true)
+                    .fixedSize()
+                Menu {
+                    ForEach(options, id: \.0) { value, title in
+                        Button { filter = value } label: {
+                            let label = value == .all ? L("全部工具") : title
+                            if effective == value { Label(label, systemImage: "checkmark") } else { Text(label) }
+                        }
+                    }
+                } label: {
+                    FilterMenuLabel(text: effective == .all ? L("全部工具") : effective.title, isActive: effective != .all)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
         }
     }
 }
@@ -805,7 +846,9 @@ private struct ModelCachePanel: View {
             VStack(spacing: 9) {
                 ForEach(Array(models)) { m in
                     HStack(spacing: 10) {
-                        Text(m.model).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(UsageFmt.modelName(m.model)).lineLimit(1).truncationMode(.middle)
+                            .help(m.model)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         DotMeter(fraction: m.detail.hitRate ?? 0, count: 10, seed: 3)
                         Text(m.detail.hitRate.map { String(format: "%.0f%%", $0 * 100) } ?? "—").frame(width: 36, alignment: .trailing)
                         Text("\(UsageFmt.tokens(m.detail.cacheRead)) · \(UsageFmt.tokens(m.detail.cacheWrite))")

@@ -186,7 +186,7 @@ enum AccountDirectory {
                 return standardize(env)
             }
             return home.appendingPathComponent(".codex").standardizedFileURL.path
-        case .cursor, .opencode:
+        case .cursor, .opencode, .agy, .grokbuild:
             return ""
         }
     }
